@@ -1188,6 +1188,7 @@ async function cmdBranch(args){
 // which resets _oldestIdx to 0 after its wholesale replace.  See #2184.
 async function forkFromMessage(msgIdx){
   if(!S.session||S.busy)return;
+  const initialSid = S.session.session_id;
   // Capture the absolute keep_count before any async work that may
   // reset _oldestIdx.  _oldestIdx is 0 when the full transcript is
   // already loaded, so short/already-full sessions send msgIdx unchanged.
@@ -1197,16 +1198,18 @@ async function forkFromMessage(msgIdx){
   if(typeof _ensureAllMessagesLoaded==='function'){
     await _ensureAllMessagesLoaded();
   }
+  if(!S.session || S.session.session_id !== initialSid) return;
   try{
     const data=await api('/api/session/branch',{
       method:'POST',
       body:JSON.stringify({
-        session_id:S.session.session_id,
+        session_id:initialSid,
         keep_count:absoluteKeepCount,
       }),
     });
     if(data&&data.session_id){
       await loadSession(data.session_id);
+      if(typeof _ensureAllMessagesLoaded==='function') await _ensureAllMessagesLoaded();
       if(typeof renderSessionList==='function') await renderSessionList();
       showToast(t('branch_forked'));
     }

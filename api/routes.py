@@ -1903,6 +1903,46 @@ def _messages_include_tool_metadata(messages) -> bool:
     return False
 
 
+def _merged_session_messages_for_display(session, cli_messages=None) -> list:
+    """Return the message coordinate space exposed by ``GET /api/session``.
+
+    Messaging sessions can have a WebUI sidecar transcript plus messages from
+    the Agent/CLI store. The frontend computes fork keep-counts against this
+    merged display list, so branch/fork must slice the same list rather than
+    the sidecar-only ``session.messages`` array.
+    """
+    cli_messages = list(cli_messages or [])
+    sidecar_messages = list(getattr(session, "messages", []) or [])
+    if cli_messages:
+        if sidecar_messages and sidecar_messages != cli_messages:
+            merged_messages = []
+            seen_message_keys = set()
+            for msg in sorted(list(cli_messages) + list(sidecar_messages), key=lambda m: (
+                float(m.get("timestamp") or 0),
+                str(m.get("role") or ""),
+                str(m.get("content") or ""),
+            )):
+                message_identity = msg.get("id") or msg.get("message_id")
+                if message_identity:
+                    key = ("message_id", str(message_identity))
+                else:
+                    key = (
+                        "legacy",
+                        str(msg.get("role") or ""),
+                        str(msg.get("content") or ""),
+                        str(msg.get("timestamp") or ""),
+                        str(msg.get("tool_call_id") or ""),
+                        str(msg.get("tool_name") or msg.get("name") or ""),
+                    )
+                if key in seen_message_keys:
+                    continue
+                seen_message_keys.add(key)
+                merged_messages.append(msg)
+            return merged_messages
+        return sidecar_messages if len(sidecar_messages) > len(cli_messages) else cli_messages
+    return sidecar_messages
+
+
 def _session_requires_cli_metadata_lookup(session) -> bool:
     """Return True when a sidecar/session row still needs CLI metadata.
 
@@ -3568,7 +3608,6 @@ def handle_get(handler, parsed) -> bool:
             _t3 = _time.monotonic()
             if load_messages:
                 if is_messaging_session and cli_messages:
-                    sidecar_messages = getattr(s, "messages", []) or []
                     # Recovery/aggregate sidecars can intentionally contain a
                     # longer visible conversation than the single state.db
                     # segment for this messaging session id. Prefer the longer
@@ -3576,33 +3615,7 @@ def handle_get(handler, parsed) -> bool:
                     # canonical per-segment transcript. When both sources carry
                     # different slices of the same stitched conversation, merge
                     # them chronologically and dedupe exact repeats.
-                    if sidecar_messages and sidecar_messages != cli_messages:
-                        merged_messages = []
-                        seen_message_keys = set()
-                        for msg in sorted(list(cli_messages) + list(sidecar_messages), key=lambda m: (
-                            float(m.get("timestamp") or 0),
-                            str(m.get("role") or ""),
-                            str(m.get("content") or ""),
-                        )):
-                            message_identity = msg.get("id") or msg.get("message_id")
-                            if message_identity:
-                                key = ("message_id", str(message_identity))
-                            else:
-                                key = (
-                                    "legacy",
-                                    str(msg.get("role") or ""),
-                                    str(msg.get("content") or ""),
-                                    str(msg.get("timestamp") or ""),
-                                    str(msg.get("tool_call_id") or ""),
-                                    str(msg.get("tool_name") or msg.get("name") or ""),
-                                )
-                            if key in seen_message_keys:
-                                continue
-                            seen_message_keys.add(key)
-                            merged_messages.append(msg)
-                        _all_msgs = merged_messages
-                    else:
-                        _all_msgs = sidecar_messages if len(sidecar_messages) > len(cli_messages) else cli_messages
+                    _all_msgs = _merged_session_messages_for_display(s, cli_messages)
                 else:
                     _all_msgs = s.messages
             else:
@@ -4886,8 +4899,21 @@ def handle_post(handler, parsed) -> bool:
         if custom_title:
             custom_title = str(custom_title).strip()[:80] or None
 
-        # Build messages slice
-        source_messages = source.messages or []
+        # Build messages slice in the same coordinate space exposed by GET
+        # /api/session so frontend keep_count values from merged messaging
+        # transcripts do not silently become full sidecar copies.
+        try:
+            source.save()
+        except Exception:
+            pass
+        cli_meta = _lookup_cli_session_metadata(source.session_id) if _session_requires_cli_metadata_lookup(source) else {}
+        is_messaging_session = _is_messaging_session_record(source) or _is_messaging_session_record(cli_meta)
+        cli_messages = get_cli_session_messages(source.session_id) if is_messaging_session else []
+        source_messages = (
+            _merged_session_messages_for_display(source, cli_messages)
+            if is_messaging_session and cli_messages
+            else list(source.messages or [])
+        )
         if keep_count is not None:
             forked_messages = source_messages[:keep_count]
         else:
