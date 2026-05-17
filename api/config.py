@@ -1772,6 +1772,19 @@ def resolve_model_provider(model_id: str) -> tuple:
             and prefix != config_provider
         ):
             return model_id, "openrouter", None
+        # Cross-provider via custom_providers: if the prefix matches a named custom
+        # provider entry (e.g. "ollama-local/glm-4.7-flash:q4_k_m"), route through it
+        # instead of falling back to the default config provider. MUST come BEFORE
+        # the config_base_url branch because many providers have a base_url set.
+        if prefix and config_provider and prefix != config_provider:
+            _custom_cfg = cfg.get("custom_providers", [])
+            if isinstance(_custom_cfg, list):
+                for _entry in _custom_cfg:
+                    if isinstance(_entry, dict) and _entry.get("name", "").strip() == prefix:
+                        _slug = _custom_provider_slug_from_name(prefix)
+                        _base = (_entry.get("base_url") or "").strip()
+                        return model_id, _slug, _base or None
+
         # If a custom endpoint base_url is configured, don't reroute through OpenRouter
         # just because the model name contains a slash (e.g. google/gemma-4-26b-a4b).
         # The user has explicitly pointed at a base_url, so trust their routing config.
@@ -3812,11 +3825,21 @@ def get_available_models() -> dict:
             or (g.get("provider_id") or "").startswith("custom:")
         ]
 
+        # 12. Include model aliases so the WebUI frontend can resolve them.
+        model_aliases: dict[str, str] = {}
+        try:
+            raw_aliases = cfg.get("model", {}).get("aliases", {})
+            if isinstance(raw_aliases, dict):
+                model_aliases = {str(k).strip(): str(v).strip() for k, v in raw_aliases.items() if k and v}
+        except Exception:
+            pass
+
         return {
             "active_provider": active_provider,
             "default_model": default_model,
             "configured_model_badges": _build_configured_model_badges(),
             "groups": groups,
+            "aliases": model_aliases,
         }
 
     # ── FAST PATH ─────────────────────────────────────────────────────────────

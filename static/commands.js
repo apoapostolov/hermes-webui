@@ -326,12 +326,60 @@ async function cmdModel(args){
   if(!args){showToast(t('model_usage'));return;}
   const sel=$('modelSelect');
   if(!sel)return;
-  const q=args.toLowerCase();
+  let q=args.toLowerCase();
+  // Resolve alias before fuzzy matching the dropdown.
+  // Fetch /api/models which now includes an "aliases" key.
+  try {
+    const resp=await fetch('/api/models');
+    if(resp.ok){
+      const data=await resp.json();
+      const aliases=data.aliases||{};
+      for(const [alias,modelId] of Object.entries(aliases)){
+        if(alias.toLowerCase()===q){
+          q=modelId; // resolve alias to real model id e.g. "deepseek/deepseek-v4-flash"
+          break;
+        }
+      }
+    }
+  } catch(_){/* non-critical, fall through to fuzzy match */}
   // Fuzzy match: find first option whose label or value contains the query
   let match=null;
   for(const opt of sel.options){
     if(opt.value.toLowerCase().includes(q)||opt.textContent.toLowerCase().includes(q)){
       match=opt.value;break;
+    }
+  }
+  // Fallback: if q has provider/ prefix (e.g. "deepseek/deepseek-v4-flash"),
+  // try the bare model name (which is how options appear for the active provider)
+  if(!match && q.includes('/')){
+    const bare=q.slice(q.lastIndexOf('/')+1);
+    for(const opt of sel.options){
+      if(opt.value.toLowerCase().includes(bare)||opt.textContent.toLowerCase().includes(bare)){
+        match=opt.value;break;
+      }
+    }
+    // Cross-provider fallback: if still no match, the model is from a
+    // different provider not in the dropdown. Call /api/session/update directly.
+    if(!match && S&&S.session&&S.session.session_id){
+      const provider=q.slice(0,q.indexOf('/'));
+      try{
+        const resp=await fetch('/api/session/update',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            session_id:S.session.session_id,
+            model:q,
+            model_provider:provider,
+          }),
+        });
+        if(resp.ok){
+          S.session.model=q;
+          S.session.model_provider=provider;
+          if(typeof syncTopbar==='function') syncTopbar();
+          showToast(t('switched_to')+q);
+          return;
+        }
+      }catch(_){/* fall through to "no model match" */}
     }
   }
   if(!match){showToast(t('no_model_match')+`"${args}"`);return;}
