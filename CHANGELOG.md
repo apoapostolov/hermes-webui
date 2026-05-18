@@ -8,6 +8,7 @@
 
 - **PR #2520** by @OneFat3 (refs #2247) — Route archive extraction (`/api/upload/extract`) through the per-session attachment inbox (`_session_attachment_dir`) instead of hardcoded `Path(s.workspace)`, matching the single-file upload path. Extracted archives now land at `<attachment_root>/<session_id>/<archive_stem>/` so session deletion cleanup covers them and per-session isolation is preserved when `HERMES_WEBUI_ATTACHMENT_DIR` is configured.
 - Surface provider fallback and rate-limit lifecycle notices as auto-clearing fallback warnings in the streaming composer status, matching the frontend warning contract.
+- **PR #2556** by @Michaelyklam (closes #2541) — Sanitize auto-generated custom-provider API-key environment variable names so endpoint-derived provider ids such as `custom:gpu.local-8000` use POSIX-safe names like `CUSTOM_GPU_LOCAL_8000_API_KEY`. Runtime custom-provider key resolution now checks the sanitized env var first and falls back to the legacy punctuation-preserving name with a one-shot deprecation warning.
 
 ## [v0.51.90] — 2026-05-18 — Release BN (stage-383 — 10-PR full sweep batch — empty-gateway messaging history fix + previous-messaging-sessions setting + Kanban board switcher layout + UI/UX demo theme controls + Slice 3c queue/goal RFC gate + keyless custom endpoints + custom-provider remote model catalog parity + auto-compression elapsed timer + new-conversation cold-start guard + Kanban drag-drop detail open fix)
 
