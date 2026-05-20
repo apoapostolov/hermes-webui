@@ -28,6 +28,7 @@ DIFF_SIZE_LIMIT = 512 * 1024
 COMMIT_MESSAGE_DIFF_LIMIT = 64 * 1024
 WORKSPACE_GIT_DESTRUCTIVE_ENV = "HERMES_WEBUI_WORKSPACE_GIT_DESTRUCTIVE"
 _GIT_ENV_SCRUB_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_CONFIG_GLOBAL")
+_HERMES_BRANCH_SWITCH_STASH_PREFIX = "hermes-webui branch switch"
 
 
 def workspace_git_destructive_enabled() -> bool:
@@ -622,6 +623,60 @@ def _dirty_worktree(ctx: GitContext) -> bool:
     return bool(result.stdout.strip())
 
 
+def _current_checkout_label(ctx: GitContext) -> str:
+    branch = _run_git(ctx, ["branch", "--show-current"], check=False).stdout.strip()
+    if branch:
+        return branch
+    return _run_git(ctx, ["rev-parse", "--short", "HEAD"], check=True).stdout.strip() or "HEAD"
+
+
+def _stash_subject_parts(subject: str) -> tuple[str, str] | None:
+    subject = str(subject or "").strip()
+    if not subject.startswith("On ") or ": " not in subject:
+        return None
+    branch, message = subject[3:].split(": ", 1)
+    branch = branch.strip()
+    message = message.strip()
+    if not branch or not message.startswith(_HERMES_BRANCH_SWITCH_STASH_PREFIX):
+        return None
+    return branch, message
+
+
+def _hermes_branch_switch_stashes(ctx: GitContext) -> list[dict]:
+    result = _run_git(ctx, ["stash", "list", "--format=%gd%x00%gs"], check=False)
+    if result.returncode != 0:
+        return []
+    stashes = []
+    for line in result.stdout.splitlines():
+        try:
+            ref, subject = line.split("\0", 1)
+        except ValueError:
+            continue
+        parts = _stash_subject_parts(subject)
+        if not parts:
+            continue
+        branch, message = parts
+        stashes.append({"ref": ref, "branch": branch, "message": message})
+    return stashes
+
+
+def _restore_branch_switch_stash_locked(ctx: GitContext, branch: str) -> dict:
+    if _dirty_worktree(ctx):
+        return {}
+    for item in _hermes_branch_switch_stashes(ctx):
+        if item.get("branch") != branch:
+            continue
+        result = _run_git(ctx, ["stash", "pop", "--index", item["ref"]], check=False)
+        if result.returncode == 0:
+            return {"restored_stash": item}
+        return {
+            "restore_failed": True,
+            "restore_error": (result.stderr or result.stdout or "Git stash restore failed").strip(),
+            "restore_stash": item,
+        }
+    return {}
+
+
 def _validate_checkout_request_locked(
     ctx: GitContext,
     ref: str,
@@ -729,15 +784,24 @@ def git_stash_and_checkout(
     if ctx is None:
         raise GitWorkspaceError("Workspace is not a Git repository", "not_a_repo")
     mode = str(mode or "local").strip().lower()
-    stash_name = f"hermes-webui branch switch {ref}".strip()
+    target_label = str(new_branch or ref or "HEAD").strip() or "HEAD"
+    stash_name = f"{_HERMES_BRANCH_SWITCH_STASH_PREFIX} to {target_label}".strip()
+    restored: dict = {}
     with _git_mutation_lock(ctx):
         _validate_checkout_request_locked(ctx, ref, mode, new_branch)
         stashed = False
-        stash_result = _run_git(ctx, ["stash", "push", "-u", "-m", stash_name], check=True)
-        stash_text = _remote_message(stash_result)
-        if "No local changes to save" not in stash_text:
-            stashed = True
-        result = _perform_checkout_locked(ctx, workspace, ref, mode, new_branch, track)
+        if _dirty_worktree(ctx):
+            stash_result = _run_git(ctx, ["stash", "push", "-u", "-m", stash_name], check=True)
+            stash_text = _remote_message(stash_result)
+            stashed = "No local changes to save" not in stash_text
+        try:
+            result = _perform_checkout_locked(ctx, workspace, ref, mode, new_branch, track)
+        except Exception:
+            if stashed:
+                _run_git(ctx, ["stash", "pop", "--index", "stash@{0}"], check=False)
+            raise
+        current_branch = _current_checkout_label(ctx)
+        restored = _restore_branch_switch_stash_locked(ctx, current_branch)
     status = git_status(workspace)
     branches = git_branches(workspace)
     return {
@@ -745,6 +809,10 @@ def git_stash_and_checkout(
         "message": _remote_message(result),
         "stash_name": stash_name if stashed else "",
         "stashed": stashed,
+        "restored_stash": restored.get("restored_stash"),
+        "restore_failed": bool(restored.get("restore_failed")),
+        "restore_error": restored.get("restore_error", ""),
+        "restore_stash": restored.get("restore_stash"),
         "current_branch": branches.get("current"),
         "status": status,
         "branches": branches,

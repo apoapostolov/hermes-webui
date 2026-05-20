@@ -9190,6 +9190,10 @@ def _handle_git_stash_checkout(handler, body):
                 "message": result.get("message", ""),
                 "stash_name": result.get("stash_name", ""),
                 "stashed": bool(result.get("stashed")),
+                "restored_stash": result.get("restored_stash"),
+                "restore_failed": bool(result.get("restore_failed")),
+                "restore_error": result.get("restore_error", ""),
+                "restore_stash": result.get("restore_stash"),
             },
         )
     except ValueError as e:

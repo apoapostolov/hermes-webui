@@ -615,7 +615,68 @@ def test_git_stash_and_checkout_is_explicit(tmp_path):
     assert result["stash_name"].startswith("hermes-webui branch switch")
     assert result["current_branch"] == "target"
     assert git_status(repo)["totals"]["changed"] == 0
-    assert "hermes-webui branch switch target" in _git(repo, "stash", "list")
+    assert "hermes-webui branch switch to target" in _git(repo, "stash", "list")
+
+
+def test_git_stash_and_checkout_restores_branch_changes_when_returning(tmp_path):
+    from api.workspace_git import git_stash_and_checkout, git_status
+
+    repo = _init_repo(tmp_path / "repo")
+    _git(repo, "branch", "-M", "main")
+    (repo / "tracked.txt").write_text("one\n", encoding="utf-8")
+    _commit_all(repo)
+    _git(repo, "checkout", "-b", "feature")
+    _git(repo, "checkout", "main")
+
+    (repo / "tracked.txt").write_text("main dirty\n", encoding="utf-8")
+    (repo / "main-only.txt").write_text("untracked on main\n", encoding="utf-8")
+
+    to_feature = git_stash_and_checkout(repo, "feature", "local")
+    assert to_feature["ok"] is True
+    assert to_feature["stashed"] is True
+    assert to_feature["current_branch"] == "feature"
+    assert git_status(repo)["totals"]["changed"] == 0
+    assert not (repo / "main-only.txt").exists()
+
+    (repo / "feature-only.txt").write_text("untracked on feature\n", encoding="utf-8")
+    to_main = git_stash_and_checkout(repo, "main", "local")
+
+    assert to_main["ok"] is True
+    assert to_main["stashed"] is True
+    assert to_main["current_branch"] == "main"
+    assert to_main["restored_stash"]["branch"] == "main"
+    assert (repo / "tracked.txt").read_text(encoding="utf-8") == "main dirty\n"
+    assert (repo / "main-only.txt").read_text(encoding="utf-8") == "untracked on main\n"
+    assert not (repo / "feature-only.txt").exists()
+    stash_list = _git(repo, "stash", "list")
+    assert "On main: hermes-webui branch switch" not in stash_list
+    assert "On feature: hermes-webui branch switch" in stash_list
+
+
+def test_git_stash_and_checkout_reports_restore_conflicts_without_dropping_stash(tmp_path):
+    from api.workspace_git import git_stash_and_checkout
+
+    repo = _init_repo(tmp_path / "repo")
+    _git(repo, "branch", "-M", "main")
+    (repo / "tracked.txt").write_text("one\n", encoding="utf-8")
+    _commit_all(repo)
+    _git(repo, "checkout", "-b", "feature")
+    _git(repo, "checkout", "main")
+    (repo / "tracked.txt").write_text("main dirty\n", encoding="utf-8")
+
+    git_stash_and_checkout(repo, "feature", "local")
+    _git(repo, "checkout", "main")
+    (repo / "tracked.txt").write_text("main changed while parked\n", encoding="utf-8")
+    _commit_all(repo, "advance main")
+    _git(repo, "checkout", "feature")
+
+    result = git_stash_and_checkout(repo, "main", "local")
+
+    assert result["ok"] is True
+    assert result["current_branch"] == "main"
+    assert result["restore_failed"] is True
+    assert result["restore_stash"]["branch"] == "main"
+    assert "On main: hermes-webui branch switch" in _git(repo, "stash", "list")
 
 
 def test_git_stash_checkout_validates_before_stashing(tmp_path):
