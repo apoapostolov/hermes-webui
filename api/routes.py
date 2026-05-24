@@ -9012,6 +9012,12 @@ def _handle_chat_sync(handler, body):
                 model=s.model,
                 title=s.title,
                 message_count=len(s.messages),
+                # #2762 / #2827 parity with api/streaming.py:5078: pass the
+                # session's profile explicitly so a future refactor that
+                # backgrounds this handler doesn't silently leak writes to
+                # the wrong profile's state.db. HTTP thread today, but
+                # defense-in-depth. Opus pre-release advisor MUST-FIX.
+                profile=getattr(s, 'profile', None),
             )
     except Exception:
         logger.debug("Failed to update session cost tracking")
