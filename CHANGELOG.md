@@ -3,6 +3,16 @@
 
 ## [Unreleased]
 
+## [v0.51.126] — 2026-05-24 — Release CX (stage-batch8 — 2-PR low-risk batch — kanban markdown + live activity timeline)
+
+### Added
+
+- **PR #2819** by @humayunak — Kanban task descriptions and comments now render as full GFM Markdown instead of plain-text. `_kanbanRenderMarkdown()` in `static/panels.js` rewrote the line-per-`<p>` wrapper as a block-parsing pipeline supporting headings, code blocks (fenced + indented), ordered/unordered lists, task lists with checkboxes, tables, blockquotes, horizontal rules, and strikethrough. `_kanbanRenderMarkdownInline()` gains `~~strikethrough~~` and tightens the italic regex to avoid mid-identifier `*` matches. CSS adds table borders, code-block background, checkbox styling, blockquote accent, and heading sizing scoped to `.hermes-kanban-md`. Frontend-only, scoped to the kanban panel. 95 existing kanban tests pass.
+
+### Changed
+
+- **PR #2847** by @AJV20 — Live chat Activity disclosure now shows observable run telemetry instead of an empty `Thinking…` placeholder when no reasoning text is available (squashed from 2 author commits). New baseline rows surface run-start metadata (model, profile), `Waiting on model` / `Waiting on tool result` / `Working for …` status, tool start/finish in the timeline alongside the existing compact tool cards, and a `No recent activity for …` state after quiet periods. Frontend-only telemetry derived from existing stream events — no new backend event types. Adds `tests/test_live_activity_timeline.py` (4 tests). The compact/calm default Activity disclosure is preserved; it only becomes informative when expanded.
+
 ## [v0.51.125] — 2026-05-24 — Release CW (stage-batch7 — 10-PR low-risk batch — UI/UX polish + bug fixes + diagnostics)
 
 ### Fixed
