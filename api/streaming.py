@@ -5060,11 +5060,56 @@ def _run_agent_streaming(
                 # Notify the frontend that compression happened
                 if _compressed:
                     visible_after = visible_messages_for_anchor(s.messages, auto_compression=True)
-                    s.compression_anchor_visible_idx = (
-                        max(0, len(visible_after) - 1) if visible_after else None
-                    )
+                    # Find the LAST [CONTEXT COMPACTION] marker in s.messages
+                    # and count visible messages before it. This is the correct
+                    # anchor — it points to the compression boundary regardless
+                    # of how many turns have been added since the boundary was
+                    # established. Using len(visible_before)-1 is fragile when
+                    # _previous_messages doesn't include markers or when extra
+                    # messages accumulate between compression and the done event.
+                    _last_marker_raw_idx = None
+                    for _mi, _m in enumerate(s.messages):
+                        if _is_context_compression_marker(_m):
+                            _last_marker_raw_idx = _mi
+                    if _last_marker_raw_idx is not None:
+                        _visible_before_marker = visible_messages_for_anchor(
+                            s.messages[:_last_marker_raw_idx], auto_compression=True,
+                        )
+                        s.compression_anchor_visible_idx = max(0, len(_visible_before_marker) - 1)
+                        logger.info(
+                            '[ANCHOR-MARKER] session=%s marker_raw=%d vis_before=%d anchor=%d',
+                            getattr(s, 'session_id', '?'),
+                            _last_marker_raw_idx,
+                            len(_visible_before_marker),
+                            s.compression_anchor_visible_idx,
+                        )
+                    else:
+                        # Fallback: use pre-turn display messages
+                        visible_before = visible_messages_for_anchor(
+                            _previous_messages, auto_compression=True,
+                        )
+                        if visible_before:
+                            s.compression_anchor_visible_idx = max(0, len(visible_before) - 1)
+                        elif visible_after:
+                            s.compression_anchor_visible_idx = 0
+                        else:
+                            s.compression_anchor_visible_idx = None
+                        logger.info(
+                            '[ANCHOR-FALLBACK] session=%s vis_before=%d anchor=%d',
+                            getattr(s, 'session_id', '?'),
+                            len(visible_before) if visible_before else 0,
+                            s.compression_anchor_visible_idx if s.compression_anchor_visible_idx is not None else -1,
+                        )
+                    # Pick anchor_msg for _compression_anchor_message_key
+                    _anchor_vis_idx = s.compression_anchor_visible_idx
+                    if _anchor_vis_idx is not None and visible_after and _anchor_vis_idx < len(visible_after):
+                        anchor_msg = visible_after[_anchor_vis_idx]
+                    elif visible_after:
+                        anchor_msg = visible_after[-1]
+                    else:
+                        anchor_msg = None
                     s.compression_anchor_message_key = (
-                        _compression_anchor_message_key(visible_after[-1]) if visible_after else None
+                        _compression_anchor_message_key(anchor_msg) if anchor_msg else None
                     )
                     s.compression_anchor_summary = _compact_summary_text(
                         _compression_summary_from_messages(s.messages)
