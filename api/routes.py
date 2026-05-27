@@ -2459,6 +2459,7 @@ from api.models import (
     get_state_db_session_messages,
     merge_session_messages_append_only,
     _session_message_merge_key,
+    prune_session_from_index,
     ensure_cron_project,
     is_cron_session,
 )
@@ -5306,7 +5307,7 @@ def handle_post(handler, parsed) -> bool:
             # here makes the active-session external-refresh poll force-reload the
             # current chat every few seconds while the user is typing, and that
             # delayed reload can restore an older draft over newer local input.
-            s.save(touch_updated_at=False)
+            s.save(touch_updated_at=False, skip_index=True)
         return j(handler, {"ok": True, "draft": s.composer_draft})
 
     if parsed.path == "/api/session/update":
@@ -5392,10 +5393,6 @@ def handle_post(handler, parsed) -> bool:
         # Delete from WebUI session store
         with LOCK:
             SESSIONS.pop(sid, None)
-        try:
-            SESSION_INDEX_FILE.unlink(missing_ok=True)
-        except Exception:
-            logger.debug("Failed to unlink session index")
         # Evict cached agent so turn count doesn't leak into a recycled session
         from api.config import _evict_session_agent
         _evict_session_agent(sid)
@@ -5409,6 +5406,10 @@ def handle_post(handler, parsed) -> bool:
             p.with_suffix('.json.bak').unlink(missing_ok=True)
         except Exception:
             logger.debug("Failed to unlink session file %s", p)
+        try:
+            prune_session_from_index(sid)
+        except Exception:
+            logger.debug("Failed to prune deleted session from index: %s", sid, exc_info=True)
         try:
             from api.upload import _session_attachment_dir
 
