@@ -260,6 +260,16 @@ def test_joplin_recent_ai_notes_mirrors_webui_prefill_env_hook(monkeypatch, tmp_
     assert [note["title"] for note in notes] == ["Current Context"]
 
 
+def test_prefill_script_path_keeps_plain_existing_paths_with_spaces(tmp_path):
+    from api import routes
+
+    script = tmp_path / "context scripts" / "recall.py"
+    script.parent.mkdir()
+    script.write_text('CURRENT_CONTEXT_ID = "5ba9ab822c344115939205ca4e8eaec0"\n', encoding="utf-8")
+
+    assert routes._script_path_from_config_value(str(script)) == script
+
+
 
 def test_external_notes_ui_uses_minimal_lucide_icons_for_ai_recent_notes():
     from pathlib import Path

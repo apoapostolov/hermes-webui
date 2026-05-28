@@ -12894,7 +12894,11 @@ def _script_path_from_config_value(path_value) -> Path | None:
         if isinstance(path_value, (list, tuple)):
             candidates = [str(part).strip() for part in path_value if str(part).strip()]
         else:
-            candidates = shlex.split(str(path_value))
+            raw = str(path_value).strip()
+            raw_path = Path(raw).expanduser()
+            if raw and raw_path.exists():
+                return raw_path
+            candidates = shlex.split(raw)
         # Hooks commonly use either [python, /path/to/script.py] or the string
         # form "python /path/to/script.py". Prefer the first script-like argument
         # over the interpreter so AI-recent notes reflect the configured recall
