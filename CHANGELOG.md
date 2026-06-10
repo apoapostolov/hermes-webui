@@ -7,6 +7,12 @@
 
 - **New RFC: Stable Assistant Turn Anchors for Live-to-Final rendering.** Defines a frontend presentation/reconciliation model for anchoring one assistant turn across live streaming, settlement, replay/reload/recovery, Compact Worklog, Transparent Stream, terminal states, artifacts, and side effects. (#3926)
 
+## [v0.51.353] — 2026-06-10 — Release LQ (cross-client live-turn recovery)
+
+### Fixed
+
+- **Opening an in-progress session from a fresh client now shows the already-streamed text and tool activity.** Switching away from an active session and returning from another device — or a tab with no in-memory snapshot — could previously show an empty or stalled turn until the next token arrived, because the already-emitted progress lived only in browser-local memory. The server now builds a live snapshot from the run journal (`runtime_journal_snapshot` in `GET /api/session`) so a fresh client rebuilds the visible assistant text + tool cards from the server. It composes with the existing run-journal replay cursor (seeds the replay-from sequence so events aren't duplicated) and keys tool cards by the same id aliases as the live path so SSE replay replaces rather than duplicates the restored cards. (#3427, part of the #3400 live-to-final epic)
+
 ## [v0.51.352] — 2026-06-10 — Release LP (medium round: jump-to-response, STATE_DIR warning, J/K nav)
 
 ### Added
