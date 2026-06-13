@@ -111,7 +111,7 @@ def _gateway_mirror_entry_token(entry) -> str:
     if not token:
         token = uuid.uuid4().hex
         try:
-            setattr(entry, "_webui_gateway_mirror_token", token)
+            entry._webui_gateway_mirror_token = token
         except Exception:
             token = f"{id(entry)}:{uuid.uuid4().hex}"
     return str(token)

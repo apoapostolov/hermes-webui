@@ -428,7 +428,6 @@ class TestSSENotifyFromSubmitPending:
     def test_gateway_mirror_reconcile_tags_live_head_and_purges_stale_copy(self):
         """Gateway mirrors must track the live head and disappear when the queue does."""
         from api import routes as r
-        from tools.approval import _ApprovalEntry
 
         sid = f"sse-gateway-mirror-{uuid.uuid4().hex[:8]}"
         approval = {
@@ -437,11 +436,16 @@ class TestSSENotifyFromSubmitPending:
             "pattern_keys": ["recursive delete"],
             "description": "recursive delete",
         }
+
+        class _GatewayEntry:
+            def __init__(self, data):
+                self.data = data
+
         q = r._approval_sse_subscribe(sid)
         try:
             with r._lock:
                 r._pending.pop(sid, None)
-                r._gateway_queues[sid] = [_ApprovalEntry(approval)]
+                r._gateway_queues[sid] = [_GatewayEntry(approval)]
             r.submit_gateway_pending_mirror(sid, approval)
 
             mirrored = q.get(timeout=1)
