@@ -3522,9 +3522,10 @@ def _main_model_supports_service_tier(
             return False
     else:
         bare_model = raw_model
+    if "codex" in bare_model:
+        return False
     return (
         _is_first_party_model("openai", bare_model)
-        or _is_first_party_model("openai-codex", bare_model)
         or bare_model.startswith(("gpt-", "o1", "o3", "o4"))
     )
 

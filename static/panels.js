@@ -9701,6 +9701,7 @@ function _mainModelSupportsServiceTier(cfg){
   if(rawModel.slice(0,slash)!=='openai') return false;
   bareModel=rawModel.slice(slash+1);
  }
+ if(bareModel.includes('codex')) return false;
  return bareModel.startsWith('gpt-')||bareModel.startsWith('o1')||bareModel.startsWith('o3')||bareModel.startsWith('o4');
 }
 

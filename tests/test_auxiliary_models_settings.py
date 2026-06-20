@@ -124,6 +124,7 @@ class TestAuxiliaryModelsJS:
         assert "_mainModelSupportsServiceTier" in PANELS_JS
         assert "rawModel.includes('/')" in helper_body
         assert "rawModel.slice(0,slash)!=='openai'" in helper_body
+        assert "bareModel.includes('codex')" in helper_body
         assert "bareModel.startsWith('gpt-')" in helper_body
         assert "bareModel.startsWith('o4')" in helper_body
         assert "auxAdvancedServiceTier" in modal_body
