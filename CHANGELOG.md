@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.533] — 2026-06-20 — Release SR (restart the gateway from the agent-health alert)
+
+### Added
+
+- **Restart the messaging gateway directly from the WebUI when its heartbeat fails (#3285).** When the agent-health alert appears (the gateway heartbeat stopped), it now offers a "Restart Service" button alongside Dismiss. It calls a new authenticated `POST /api/health/restart` that runs `hermes gateway restart` (graceful drain of in-flight runs) for the active profile's `HERMES_HOME`. The endpoint is guarded by a non-blocking lock (concurrent restarts get a 429), returns quickly when the restart completes fast, and otherwise lets the drain finish in the background with a timeout; the client suppresses health-polling for 15s afterward so the alert doesn't flicker during the restart. Thanks @Chukwuebuka-2003.
+
 ## [v0.51.532] — 2026-06-20 — Release SQ (built-in personalities on non-default profiles)
 
 ### Fixed
