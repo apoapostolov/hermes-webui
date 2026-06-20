@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.529] — 2026-06-20 — Release SN (per-response jump button matches the session jump pill)
+
+### Fixed
+
+- **The per-response "jump to question" button now matches the session jump pill instead of rendering as a smaller, inconsistent control (#2246 follow-up).** The response jump button reuses the session jump button's class stack and dimensions (height, padding, border, background, hover lift), so the two jump affordances look like one consistent control; on mobile (≤600px) it collapses to the same 32px circular icon button as the session pill. Thanks @TomBanksAU.
+
 ## [v0.51.528] — 2026-06-20 — Release SM (isolated HERMES_HOME single-profile mode)
 
 ### Added
