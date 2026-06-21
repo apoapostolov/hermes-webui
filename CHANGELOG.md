@@ -3,6 +3,16 @@
 
 ## [Unreleased]
 
+## [v0.51.556] — 2026-06-21 — Release TO (Indonesian Edge TTS voice + Listen button state fix)
+
+### Added
+
+- **Indonesian Edge TTS voice (`Gadis`).** Added `id-ID-GadisNeural` to the Edge TTS voice allowlist and the voice picker. Thanks @latipun7.
+
+### Fixed
+
+- **The Listen (text-to-speech) button now reflects playing state for chunked Edge TTS playback.** It marks the speaking state at the start of playback so the button shows it's active instead of looking idle while audio plays. Thanks @latipun7.
+
 ## [v0.51.555] — 2026-06-21 — Release TN (mobile reloads recover after compression rotation)
 
 ### Fixed
