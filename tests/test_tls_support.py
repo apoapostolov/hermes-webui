@@ -6,6 +6,7 @@ Tests use a self-signed certificate generated at test time via openssl.
 import http.client
 import json
 import os
+import socket
 import ssl
 import subprocess
 import sys
@@ -222,6 +223,39 @@ class TestTLSEndToEnd(unittest.TestCase):
         data = json.loads(resp.read())
         self.assertEqual(data.get("status"), "ok")
         conn.close()
+
+    def test_stalled_tls_handshake_does_not_block_other_clients(self):
+        """A raw TCP client that never speaks TLS must not wedge HTTPS accept()."""
+        port = _find_free_port()
+        self._proc = _start_server(port, cert=self._cert, key=self._key)
+        self.assertTrue(
+            _wait_for_server("127.0.0.1", port, use_ssl=True),
+            "TLS server did not start in time",
+        )
+
+        raw = socket.create_connection(("127.0.0.1", port), timeout=2)
+        try:
+            # Give the kernel a moment to deliver the TCP connection so the
+            # server's accept loop dequeues the raw socket before the HTTPS
+            # request arrives — this guarantees the test exercises the fix.
+            time.sleep(0.05)
+            # Do not send a TLS ClientHello. Before the fix, the listening
+            # SSLSocket performed the handshake in the single accept loop, so
+            # this one idle client blocked every later browser/API request.
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            conn = http.client.HTTPSConnection(
+                "127.0.0.1", port, timeout=2, context=ctx,
+            )
+            conn.request("GET", "/health")
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read())
+            self.assertEqual(data.get("status"), "ok")
+            conn.close()
+        finally:
+            raw.close()
 
     def test_http_without_tls_still_works(self):
         self._proc = _start_and_wait(use_ssl=False)

@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.595] — 2026-06-23 — Release VB (TLS handshake no longer stalls the accept loop)
+
+### Fixed
+
+- **A stalled or malformed TLS handshake can no longer freeze the whole server.** When HTTPS was enabled, the listening socket itself was TLS-wrapped, so the TLS handshake ran inside the single accept loop — one client that connected but never completed the handshake (a hung client, a port scanner, a half-open probe) blocked every other request, leaving the server alive but unable to serve anyone. The handshake now runs lazily in the per-request worker thread instead (the listening socket stays plain; each accepted connection is wrapped with `do_handshake_on_connect=False`), so a stalled handshake only ties up its own worker and is bounded by the existing 30s request timeout. Plain-HTTP serving is unchanged. Thanks @jcarvine. (#4727)
+
 ## [v0.51.594] — 2026-06-22 — Release VA (profile-switch loading skeletons)
 
 ### Added
