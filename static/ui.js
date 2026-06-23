@@ -13507,6 +13507,34 @@ function _loadJsyamlThen(cb){
   document.head.appendChild(s);
 }
 
+// ── JSON/YAML structured code-block default-view configuration (#484) ──
+// Read the user's configured default-view mode for valid JSON/YAML fenced
+// blocks. Falls back to 'auto' for any missing/invalid value so the renderer
+// stays safe before settings load and in non-browser test contexts.
+function _structuredCodeMode(){
+  const m=(typeof window!=='undefined')?window._structuredCodeDefaultView:undefined;
+  return (m==='on'||m==='off'||m==='auto')?m:'auto';
+}
+// Read the configured 'auto'-mode line threshold, clamped to a sane integer
+// range. Invalid/missing values fall back to 10 (the original hardcoded value).
+function _structuredCodeThreshold(){
+  const raw=(typeof window!=='undefined')?window._structuredCodeAutoTreeLines:undefined;
+  const n=parseInt(raw,10);
+  return (Number.isFinite(n)&&n>=1&&n<=1000)?n:10;
+}
+// Pure decision helper: should a structured block default to Tree view?
+// Factored out so the (mode, threshold, lineCount) contract is unit-testable.
+//   mode 'on'   => always Tree
+//   mode 'off'  => always Raw
+//   mode 'auto' => Tree only when lineCount >= threshold (threshold sanitized,
+//                  fallback 10)
+function _structuredCodeShowTree(mode,threshold,lineCount){
+  if(mode==='on') return true;
+  if(mode==='off') return false;
+  const th=(Number.isFinite(threshold)&&threshold>=1&&threshold<=1000)?threshold:10;
+  return lineCount>=th;
+}
+
 function initTreeViews(container){
   const root=container||document;
   root.querySelectorAll('.code-tree-wrap:not([data-tree-init])').forEach(wrap=>{
@@ -13544,8 +13572,11 @@ function initTreeViews(container){
       return; // leave as raw view
     }
     const lineCount=rawText.split('\n').length;
-    // Default to raw for short blocks (<10 lines), tree for longer
-    const showTree=lineCount>=10;
+    // Default view is user-configurable (#484 follow-up). 'on' => always Tree,
+    // 'off' => always Raw, 'auto' => Tree only when the block is >= the
+    // configured line threshold (default 10, preserving the original behavior).
+    // The per-block Raw/Tree toggle below always remains available regardless.
+    const showTree=_structuredCodeShowTree(_structuredCodeMode(),_structuredCodeThreshold(),lineCount);
     // Build tree DOM
     const treeDiv=document.createElement('div');
     treeDiv.className='tree-view'+(showTree?'':' tree-hidden');

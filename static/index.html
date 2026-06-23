@@ -1072,6 +1072,19 @@
               <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_render_user_markdown">When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.</div>
             </div>
             <div class="settings-field" style="margin-top:8px">
+              <label for="settingsStructuredCodeMode" data-i18n="settings_label_structured_code">JSON/YAML code blocks</label>
+              <select id="settingsStructuredCodeMode" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px">
+                <option value="auto" data-i18n="settings_option_structured_code_auto">Auto: Tree for long blocks</option>
+                <option value="on" data-i18n="settings_option_structured_code_on">Tree by default</option>
+                <option value="off" data-i18n="settings_option_structured_code_off">Raw by default</option>
+              </select>
+              <div style="margin-top:8px">
+                <label for="settingsStructuredCodeAutoLines" data-i18n="settings_label_structured_code_auto_lines">Auto threshold lines</label>
+                <input type="number" id="settingsStructuredCodeAutoLines" min="1" max="1000" step="1" inputmode="numeric" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px;font-size:13px">
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_structured_code">When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.</div>
+            </div>
+            <div class="settings-field" style="margin-top:8px">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
                 <input type="checkbox" id="settingsShowTitlebarProfile" style="width:15px;height:15px;accent-color:var(--accent)">
                 <span data-i18n="settings_label_show_titlebar_profile">Show profile switcher in titlebar</span>

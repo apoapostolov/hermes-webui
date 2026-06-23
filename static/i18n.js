@@ -600,6 +600,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar',
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.',
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -2175,6 +2181,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -3741,6 +3753,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Worklog の詳細を自動的に開く',
     settings_desc_worklog_details_expanded_default: '有効にすると、新しい Worklog の詳細が展開された状態で始まり、ツール、Thinking、進捗カードをクリックなしで確認できます。無効の場合、Worklog の詳細はデフォルトで折りたたまれます。ターンごとの手動折りたたみ/展開は優先されます。',
     settings_label_chat_activity_display_mode: 'アクティビティ表示',
@@ -6008,6 +6026,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -7499,6 +7523,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -8671,6 +8701,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -10516,6 +10552,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -11320,6 +11362,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: '在標題列顯示設定檔切換器',
     settings_desc_show_titlebar_profile: '啟用後，左上角的應用程式標題列會出現設定檔切換按鈕，讓你在任何分頁都能切換設定檔。預設關閉；無論此設定為何，輸入列底部一律保留設定檔切換器。',
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -12782,6 +12830,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -14250,6 +14304,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -15740,6 +15800,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -17324,6 +17390,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Open Worklog details automatically',
     settings_desc_worklog_details_expanded_default: 'When enabled, new Worklog details start expanded so tool, thinking, and progress cards are visible without an extra click. When off, Worklog details stay folded by default; per-turn manual collapse/expand choices still win.',
     settings_label_chat_activity_display_mode: 'Activity display',
@@ -18904,6 +18976,12 @@ const LOCALES = {
     settings_label_show_titlebar_profile: 'Show profile switcher in titlebar', // TODO: translate
     settings_desc_show_titlebar_profile: 'When enabled, a profile switcher button appears in the top-left app titlebar so you can change profiles from any tab. Off by default; the composer footer always has a profile switcher regardless of this setting.', // TODO: translate
     settings_desc_render_user_markdown: 'When enabled, bold, italic, links, and other markdown in your own messages are rendered. Off by default; fenced code blocks and math always render regardless of this setting.',
+    settings_label_structured_code: 'JSON/YAML code blocks',
+    settings_option_structured_code_auto: 'Auto: Tree for long blocks',
+    settings_option_structured_code_on: 'Tree by default',
+    settings_option_structured_code_off: 'Raw by default',
+    settings_label_structured_code_auto_lines: 'Auto threshold lines',
+    settings_desc_structured_code: 'When Auto is selected, JSON/YAML blocks with at least this many lines open in Tree view. Tree always opens the structured viewer; Raw keeps the syntax-highlighted text. You can still switch Tree/Raw on each block.',
     settings_label_worklog_details_expanded_default: 'Otwieraj szczegóły Worklog automatycznie',
     settings_desc_worklog_details_expanded_default: 'Gdy ta opcja jest włączona, nowe szczegóły Worklog zaczynają rozwinięte, dzięki czemu karty narzędzi, Thinking i postępu są widoczne bez dodatkowego kliknięcia. Gdy jest wyłączona, szczegóły Worklog pozostają domyślnie zwinięte. Ręczne decyzje o zwinięciu/rozwinięciu w danej turze mają pierwszeństwo.',
     settings_label_chat_activity_display_mode: 'Activity display',
