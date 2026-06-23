@@ -819,9 +819,9 @@ function _restoreMessageViewportAnchor(anchor, rawIdxDelta){
   const containerRect=container.getBoundingClientRect();
   const rect=row.getBoundingClientRect();
   const targetTop=Number(anchor.topOffset)||0;
-  _programmaticScroll=true;
+  _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
   container.scrollTop+=(rect.top-containerRect.top)-targetTop;
-  requestAnimationFrame(()=>{ _programmaticScroll=false; });
+  _deferClearProgrammaticScroll();
   return true;
 }
 let _messageViewportAnchorRemounting=false;
@@ -887,10 +887,10 @@ function _compensateScrollForMeasurementDelta(renderFn){
   const actualOffset=rowRect.top-containerRect.top;
   const delta=actualOffset-anchorBefore.topOffset;
   if(Math.abs(delta)<2) return;
-  _programmaticScroll=true;
+  _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
   container.scrollTop=scrollTopBefore+delta;
   _lastScrollTop=container.scrollTop;
-  requestAnimationFrame(()=>{ setTimeout(()=>{ _programmaticScroll=false; },0); });
+  _deferClearProgrammaticScroll();
 }
 function _messageViewportIntersectsRenderedRow(){
   const container=$('messages');
@@ -1050,7 +1050,7 @@ async function jumpToSessionStart(){
   if(!container||!S.session) return;
   _scrollPinned=false;
   _messageUserUnpinned=true;
-  _programmaticScroll=true;
+  _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
   try{
     // During active streaming, skip full message load — API response won't
     // include live messages from the current turn, and replacing S.messages
@@ -1069,7 +1069,7 @@ async function jumpToSessionStart(){
     requestAnimationFrame(()=>{
       container.scrollTop=0;
       _updateSessionStartJumpButton();
-      requestAnimationFrame(()=>{ _programmaticScroll=false; });
+      _deferClearProgrammaticScroll();
     });
   }catch(e){
     console.warn('jumpToSessionStart failed:',e);
@@ -1128,7 +1128,7 @@ async function jumpToTurnQuestion(questionRawIdx, assistantRawIdx){
   if(visibleIdx>=0){
     _scrollPinned=false;
     _messageUserUnpinned=true;
-    _programmaticScroll=true;
+    _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
     container.scrollTop=_messageVirtualScrollTopForVisibleIdx(visWithIdx, visibleIdx, container);
     _messageVirtualWindowKey='';
     renderMessages({ preserveScroll:true });
@@ -1139,7 +1139,7 @@ async function jumpToTurnQuestion(questionRawIdx, assistantRawIdx){
         renderMessages({ preserveScroll:true });
         requestAnimationFrame(scrollToTarget);
       }
-      requestAnimationFrame(()=>{ _programmaticScroll=false; });
+      _deferClearProgrammaticScroll();
     });
     return;
   }
@@ -3671,6 +3671,9 @@ window.addEventListener('resize',function(){
 // Programmatic scrolls are ignored via _programmaticScroll. Fixes #1469 / #1360 / #1731.
 let _scrollPinned=true;
 let _programmaticScroll=false;
+let _programmaticScrollSetAt=0;
+let _programmaticScrollResetTimer=0;
+function _deferClearProgrammaticScroll(ms){clearTimeout(_programmaticScrollResetTimer);_programmaticScrollResetTimer=setTimeout(()=>{_programmaticScroll=false;},ms||80);}
 let _nearBottomCount=0;
 let _lastScrollTop=null;
 // Sticky-unpin model (#3343 supersedes #3330's proximity re-pin): once the user
@@ -3905,7 +3908,8 @@ if(typeof window!=='undefined'){
   let _scrollRaf=0;
   el.addEventListener('scroll',()=>{
     _scheduleMessageVirtualizedRender();
-    if(_programmaticScroll) return; // ignore scrolls we triggered ourselves
+    if(_programmaticScroll&&(performance.now()-_programmaticScrollSetAt)>150) _programmaticScroll=false;
+    if(_programmaticScroll) return;
     _markMessageVirtualScrollActive();
     cancelAnimationFrame(_scrollRaf);
     _scrollRaf=requestAnimationFrame(()=>{
@@ -4403,7 +4407,7 @@ document.addEventListener('DOMContentLoaded',function(){
 function _setMessageScrollToBottom(){
   const el=$('messages');
   if(!el) return;
-  _programmaticScroll=true;
+  _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
   el.scrollTop=el.scrollHeight;
   _lastScrollTop=el.scrollTop;
   _nearBottomCount=2;
@@ -4416,14 +4420,14 @@ function _setMessageScrollToBottom(){
     // is the authoritative "user scrolled away" signal, so DON'T snap them back
     // or re-pin if so; only release the programmatic-scroll latch.
     if(_messageUserUnpinned || !_scrollPinned || _recentNonMessageScrollIntent()){
-      requestAnimationFrame(()=>{ setTimeout(()=>{_programmaticScroll=false;},0); });
+      _deferClearProgrammaticScroll();
       return;
     }
     el.scrollTop=el.scrollHeight;
     _lastScrollTop=el.scrollTop;
     _nearBottomCount=2;
     _scrollPinned=true;
-    requestAnimationFrame(()=>{ setTimeout(()=>{_programmaticScroll=false;},0); });
+    _deferClearProgrammaticScroll();
   });
 }
 function _isMessagePaneNearBottom(threshold=250){
@@ -4537,14 +4541,12 @@ function _settleFinalScroll(token){
     _programmaticScroll=false;
     return;
   }
-  _programmaticScroll=true;
+  _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
   el.scrollTop=el.scrollHeight;
   _lastScrollTop=el.scrollTop;
   _nearBottomCount=2;
   _scrollPinned=true;
-  requestAnimationFrame(()=>{
-    setTimeout(()=>{ _programmaticScroll=false; },0);
-  });
+  _deferClearProgrammaticScroll();
 }
 function scrollIfPinned(){
   if(!_autoScrollFollow) return;
@@ -10865,7 +10867,7 @@ function _restoreMessageScrollSnapshot(snapshot){
       : false;
   }
   if(!restoredViaAnchor){
-    _programmaticScroll=true;
+    _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
     el.scrollTop=Math.max(0,Math.min(Number(snapshot.top)||0,maxTop));
   }
   // Sync _lastScrollTop after programmatic restore so sticky-unpin does not false-trigger (#1731).
@@ -10891,7 +10893,7 @@ function _restoreMessageScrollSnapshot(snapshot){
     }
   }
   if(!restoredViaAnchor){
-    requestAnimationFrame(()=>{ setTimeout(()=>{_programmaticScroll=false;},0); });
+    _deferClearProgrammaticScroll();
   }
 }
 function _restoreMessageScrollSnapshotSameFrame(snapshot){
@@ -10905,13 +10907,30 @@ function _restoreMessageScrollSnapshotSameFrame(snapshot){
       ? _restoreMessageViewportAnchor(snapshot.anchor,0)
       : false;
   }
+  if(!restoredViaAnchor&&snapshot.anchor&&snapshot.anchor.rawIdx!=null&&
+     !el.querySelector(`[data-msg-idx="${snapshot.anchor.rawIdx}"]`)&&
+     typeof _getVisibleMessagesWithIdx==='function'&&
+     typeof _messageVisibleIndexForRawIdx==='function'&&
+     typeof _messageVirtualScrollTopForVisibleIdx==='function'){
+    const visWithIdx=_getVisibleMessagesWithIdx();
+    const visIdx=_messageVisibleIndexForRawIdx(snapshot.anchor.rawIdx,visWithIdx);
+    if(visIdx>=0){
+      _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
+      el.scrollTop=_messageVirtualScrollTopForVisibleIdx(visWithIdx,visIdx,el);
+      _messageVirtualWindowKey='';
+      renderMessages({preserveScroll:true});
+      restoredViaAnchor=(typeof _restoreMessageViewportAnchor==='function')
+        ? _restoreMessageViewportAnchor(snapshot.anchor,0)
+        : false;
+    }
+  }
   if(!restoredViaAnchor){
     const maxTop=Math.max(0,el.scrollHeight-el.clientHeight);
     const bottom=Number(snapshot.bottom);
     const target=(snapshot.pinned===true&&Number.isFinite(bottom))
       ? maxTop-Math.max(0,bottom)
       : Number(snapshot.top)||0;
-    _programmaticScroll=true;
+    _programmaticScroll=true;_programmaticScrollSetAt=performance.now();
     el.scrollTop=Math.max(0,Math.min(target,maxTop));
   }
   _lastScrollTop=el.scrollTop;
@@ -10925,7 +10944,7 @@ function _restoreMessageScrollSnapshotSameFrame(snapshot){
     _nearBottomCount=0;
   }
   if(!restoredViaAnchor){
-    requestAnimationFrame(()=>{ setTimeout(()=>{_programmaticScroll=false;},0); });
+    _deferClearProgrammaticScroll();
   }
 }
 function _renderMessagesWithScrollSnapshot(options){
