@@ -1312,6 +1312,17 @@ function cancelCronForm(){
   _clearCronDetail();
 }
 
+function _cronModelBareName(model, provider) {
+  // Strip @provider: prefix from a model value when provider is stored separately.
+  // The model dropdown may contain values like "@custom:9router:chat" (from
+  // _apply_provider_prefix) but cron jobs store model and provider separately,
+  // so the model should be just "chat".
+  if (model && provider && model.startsWith('@' + provider + ':')) {
+    return model.slice(('@' + provider + ':').length);
+  }
+  return model;
+}
+
 async function saveCronForm(){
   const nameEl=$('cronFormName');
   const schEl=$('cronFormSchedule');
@@ -1346,7 +1357,7 @@ async function saveCronForm(){
           const modelState = (typeof _modelStateForSelect === 'function')
             ? _modelStateForSelect(modelEl, selectedModel)
             : { model: selectedModel, model_provider: null };
-          updates.model = modelState.model || null;
+          updates.model = _cronModelBareName(modelState.model, modelState.model_provider) || null;
           updates.provider = modelState.model_provider || null;
         } else if (modelLoaded) {
           updates.model = null;
@@ -1373,11 +1384,11 @@ async function saveCronForm(){
         const modelState = (typeof _modelStateForSelect === 'function')
           ? _modelStateForSelect(modelEl, selectedModel)
           : { model: selectedModel, model_provider: null };
-        body.model = modelState.model || null;
+        body.model = _cronModelBareName(modelState.model, modelState.model_provider) || null;
         body.provider = modelState.model_provider || null;
       }
     } else if (_cronIsDuplicate && _cronPreFormDetail && _cronPreFormDetail.model) {
-      body.model = _cronPreFormDetail.model;
+      body.model = _cronModelBareName(_cronPreFormDetail.model, _cronPreFormDetail.provider) || null;
       body.provider = _cronPreFormDetail.provider || null;
     }
     const res = await api('/api/crons/create',{method:'POST',body:JSON.stringify(body)});

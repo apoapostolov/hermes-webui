@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cron form no longer stores the `@provider:` prefix in the model field.** When a custom provider's model was selected in the cron create/edit form, the dropdown option value included the `@provider_id:` prefix (e.g. `@custom:9router:chat`), which was passed through as the stored model value instead of just the bare model name (`chat`). The fix strips the prefix client-side before sending to the API, since cron jobs store model and provider as separate fields.
+
 ## [v0.51.614] — 2026-06-23 — Release VU (Kanban consolidated view toggle)
 
 ### Added
