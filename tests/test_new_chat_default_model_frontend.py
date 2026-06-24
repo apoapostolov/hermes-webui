@@ -98,7 +98,7 @@ def test_new_session_posts_picker_model_before_server_default():
     fn = _new_session_function()
     assert "reqBody.model=newModelState.model" in fn
     assert "explicitModelOverride" in fn
-    assert "hasLoadedSession&&window._defaultModel" in fn
+    assert "}else if(window._defaultModel){" in fn
     assert "modelSelForNew&&modelSelForNew.value&&typeof _modelStateForSelect==='function'" in fn
     provider_assignment = fn[fn.index("reqBody.model_provider="):].split(";", 1)[0]
     assert "newModelState.model_provider" in provider_assignment
@@ -106,10 +106,10 @@ def test_new_session_posts_picker_model_before_server_default():
     assert "window._activeProvider" in fn
     assert "S.session&&S.session.model_provider" in fn
     pos_override = fn.index("explicitModelOverride")
-    pos_default = fn.index("hasLoadedSession&&window._defaultModel")
+    pos_default = fn.index("}else if(window._defaultModel){")
     pos_legacy = fn.index("modelSelForNew&&modelSelForNew.value&&typeof _modelStateForSelect==='function'")
     assert pos_override < pos_default < pos_legacy, (
-        "newSession() must prefer the empty-composer override first, then the configured default for loaded-session flows, then legacy picker state"
+        "newSession() must prefer the empty-composer override first, then the configured default, then legacy picker state"
     )
     assert "_familyMismatch" in fn
     assert "_readPersistedModelState" in fn
@@ -140,8 +140,8 @@ def test_new_chat_prefers_explicit_empty_composer_override_before_configured_def
     assert "usingConfiguredDefault" in fn
     assert "_clearEmptyComposerModelOverride" in fn
     assert "newModelState={model:window._defaultModel,model_provider:null};" in fn
-    assert fn.index("explicitModelOverride") < fn.index("hasLoadedSession&&window._defaultModel") < fn.index("_modelStateForSelect"), (
-        "newSession() must prefer the empty-composer override first, then the configured default for loaded-session flows, then legacy picker state"
+    assert fn.index("explicitModelOverride") < fn.index("}else if(window._defaultModel){") < fn.index("_modelStateForSelect"), (
+        "newSession() must prefer the empty-composer override first, then the configured default, then legacy picker state"
     )
 
 

@@ -886,7 +886,9 @@ async function newSession(flash, options={}){
     if(!hasLoadedSession&&explicitModelOverride&&explicitModelOverride.model){
       newModelState=explicitModelOverride;
       consumedExplicitModelOverride=true;
-    }else if(hasLoadedSession&&window._defaultModel){
+    }else if(window._defaultModel){
+      // Configured default wins over stale picker/persisted state even with no
+      // loaded session (deleting the last session left S.session null + stale picker) (#4728).
       newModelState={model:window._defaultModel,model_provider:null};
       usingConfiguredDefault=true;
     }else if(modelSelForNew&&modelSelForNew.value&&typeof _modelStateForSelect==='function'){

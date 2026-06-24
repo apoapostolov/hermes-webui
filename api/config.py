@@ -3605,7 +3605,12 @@ def set_hermes_default_model(model_id: str, provider: str | None = None, advance
         elif persisted_provider != previous_provider:
             if persisted_provider == "openai":
                 model_cfg["base_url"] = "https://api.openai.com/v1"
-            elif not persisted_provider.startswith("custom:"):
+            else:
+                # Provider changed and we have no resolved URL for the new one.
+                # Drop the previous provider's base_url so New Chat doesn't route
+                # to the old endpoint — this MUST also cover custom:* providers
+                # (a different custom provider has a different URL); leaving the
+                # stale base_url sent requests to the wrong host (#4728).
                 model_cfg.pop("base_url", None)
 
         _apply_advanced_model_options(model_cfg, advanced)
