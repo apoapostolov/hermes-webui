@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.661] — 2026-06-25 — Release XQ (no more fabricated multi-hour processing time)
+
+### Fixed
+
+- **A freshly-started conversation no longer shows a fabricated "Processed 15h 32m" (or other wildly wrong) turn duration.** A settled turn that recorded no live duration fell back to computing `now − pending_started_at`, but `pending_started_at` marks the start of an *in-flight* turn — so for a settled turn it could be stale (left from an earlier turn, or a session that sat idle) and produced a duration equal to the idle gap. The fallback now only computes elapsed time while a turn is actually in flight; a settled turn with no recorded duration shows no duration instead of an invented one. The real recorded turn duration is unaffected. (#4930)
+
 ## [v0.51.660] — 2026-06-25 — Release XP (terminal output and diffs survive a reload)
 
 ### Fixed
