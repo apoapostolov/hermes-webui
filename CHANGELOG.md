@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.659] — 2026-06-25 — Release XO (one-click extension install works with no setup)
+
+### Fixed
+
+- **One-click extension install now works out of the box with no configuration (#4933).** Previously the Settings → Extensions gallery offered an **Install** button even when extensions weren't configured, then dead-ended on `Install failed: Extensions not configured` because the install path required `HERMES_WEBUI_EXTENSION_DIR` to be set to an existing directory before the server started — documented nowhere user-facing. Install now bootstraps a WebUI-managed default extension directory under the state dir (`STATE_DIR/extensions`, e.g. `~/.hermes/webui/extensions/`) on first use and installs into it, so any user can open Settings, pick an extension, and click Install with zero environment setup; the extension loads automatically on the next app-shell render. `HERMES_WEBUI_EXTENSION_DIR` remains an optional override for operators who want a specific path (WebUI never auto-creates an admin-specified path). The managed directory lives in the WebUI-owned state dir alongside sessions/settings — a different trust domain from a user-writable directory on a shared box — and the trust model is unchanged (installed code still runs with full session authority, so only install vetted/trusted extensions). `docs/EXTENSIONS.md` documents the zero-config flow.
+
 ## [v0.51.658] — 2026-06-25 — Release XN (tool cards keep long commands and reconstruct diffs)
 
 ### Fixed
@@ -14,7 +20,6 @@
 ### Fixed
 
 - **Expanding a shell/terminal tool card now shows the full multi-line command, not just the first line.** In the transparent activity stream, a shell card's collapsed header correctly shows only the first line (compact metadata), but the expanded card reused that same first-line-only value — so a multi-line script still rendered as line 1 when you expanded it. The expanded detail lead now shows the complete command. As part of this, command redaction was broadened to mask common secret forms (env/colon assignments for `*TOKEN`/`*API_KEY`/`*SECRET`/`*ACCESS_KEY`/`*PRIVATE_KEY`/`*CREDENTIAL`/`*CLIENT_SECRET`/`*SESSION_KEY`/`*AUTH*`, `--token`/`--api-key`/`--secret`-style flags, `Authorization:` headers, and secret-looking URL query params) across the whole command, so exposing lines beyond the first never leaks a key. (#4926, part of #4925)
-
 ## [v0.51.656] — 2026-06-25 — Release XL (stream writeback timing diagnostics)
 
 ### Fixed
