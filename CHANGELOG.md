@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Streaming-time session index updates now hold the global session lock for less work.** `_write_session_index()` now snapshots in-memory session rows under `LOCK`, but reads/parses the existing `_index.json`, sorts, serializes, and writes the updated index outside that lock. This reduces avoidable `/api/session` and `/api/sessions` contention while a running stream saves session metadata, addressing the lock-window half of #4918 without changing the active-stream lifecycle.
+
 ## [v0.51.653] — 2026-06-25 — Release XI (gateway approval failures stay actionable instead of dead-ending)
 
 ### Fixed
