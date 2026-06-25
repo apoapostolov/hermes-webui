@@ -334,11 +334,11 @@ def test_legacy_approval_records_run_id_for_response_relay():
 
 def test_legacy_approval_without_run_id_stays_actionable():
     """Legacy approvals without a run_id must fail explicitly and keep the mirror live."""
+    from types import SimpleNamespace
     from api import routes as r
     from api import route_approvals as ra
     from api.config import STREAMS, STREAMS_LOCK
     from api.gateway_chat import _STREAM_RUN_IDS, _run_gateway_chat_streaming
-    from tools.approval import _ApprovalEntry
 
     stream_id = "sid-legacy-no-run"
     session_id = "sess-legacy-no-run"
@@ -413,7 +413,7 @@ def test_legacy_approval_without_run_id_stays_actionable():
         assert approval_events
         approval_data = approval_events[0][1]
         with ra._lock:
-            r._gateway_queues[session_id] = [_ApprovalEntry(approval_data)]
+            r._gateway_queues[session_id] = [SimpleNamespace(data=dict(approval_data))]
         ra.submit_gateway_pending_mirror(session_id, approval_data)
         with ra._lock:
             pending_queue = r._pending.get(session_id)
