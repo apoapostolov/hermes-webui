@@ -24,11 +24,16 @@ SESSIONS_JS = (Path(__file__).parent.parent / "static" / "sessions.js").read_tex
 
 
 def _slice_derived_rebuild() -> str:
-    """Return the renderMessages fallback-rebuild region (resultsByTid block)."""
-    start = UI_JS.index("const resultsByTid={};")
+    """Return the renderMessages fallback-rebuild region (resultsByTid block).
+
+    Anchored on `const fallbackToolSources=[];` which is unique to the
+    renderMessages derived-rebuild block — `const resultsByTid={};` alone is no
+    longer unique (the transparent-stream ordered path added its own at #4932).
+    """
+    start = UI_JS.index("const fallbackToolSources=[];")
     # The region runs through the _partial_tool_calls derived push; bound it
-    # generously so both derived-push sites are included.
-    return UI_JS[start:start + 6000]
+    # generously so all derived-push sites are included.
+    return UI_JS[start:start + 7000]
 
 
 def test_persisted_snippet_lookup_is_built_from_session_tool_calls():

@@ -11120,6 +11120,96 @@ function _renderMessagesWithScrollSnapshot(options){
   _restoreMessageScrollSnapshotSameFrame(scrollSnapshot);
 }
 let _assistantTurnAnchorSettledFinalAnswerWarned=false;
+function _transparentStreamOrderedParts(message){
+  if(typeof isTransparentStream==='function'&&!isTransparentStream()) return null;
+  if(!message||message.role!=='assistant'||message._live||!Array.isArray(message.content)) return null;
+  if(message._anchor_activity_scene) return null;
+  const ordered=[];
+  let hasText=false;
+  let hasTool=false;
+  for(const part of message.content){
+    if(!part||typeof part!=='object') continue;
+    if(part.type==='text'){
+      const text=typeof part.text==='string'?part.text:(typeof part.content==='string'?part.content:'');
+      if(!String(text||'').trim()) continue;
+      ordered.push({kind:'text', text});
+      hasText=true;
+      continue;
+    }
+    if(part.type==='tool_use'){
+      const toolUseId=String(part.id||'').trim();
+      if(!toolUseId) return null;
+      ordered.push({
+        kind:'tool',
+        toolUseId,
+        name:part.name||'tool',
+        input:(part.input&&typeof part.input==='object')?part.input:{},
+      });
+      hasTool=true;
+    }
+  }
+  return hasText&&hasTool?ordered:null;
+}
+function _transparentOrderedDisplayText(text){
+  return _stripWorkspaceDisplayPrefix(
+    _stripAttachedFilesMarkerForDisplay(
+      _stripLeadingAssistantThinkingMarkup(String(text||''))
+    )
+  );
+}
+function _collectToolResultSnippetsByTid(messages){
+  const resultsByTid={};
+  for(const message of (messages||[])){
+    if(!message) continue;
+    if(message.role==='tool'){
+      const tid=message.tool_call_id||message.tool_use_id||'';
+      if(tid) resultsByTid[tid]=_cliToolResultSnippet(message.content);
+      continue;
+    }
+    if(!Array.isArray(message.content)) continue;
+    for(const part of message.content){
+      if(!part||typeof part!=='object'||part.type!=='tool_result') continue;
+      const tid=part.tool_use_id||'';
+      if(!tid) continue;
+      const raw=typeof part.content==='string'
+        ? part.content
+        : Array.isArray(part.content)
+          ? part.content.map(c=>c&&c.text?c.text:'').join('')
+          : '';
+      resultsByTid[tid]=_cliToolResultSnippet(raw);
+    }
+  }
+  return resultsByTid;
+}
+function _transparentOrderedToolCall(part, rawIdx, toolCallsByTid, resultsByTid, persistedByTid){
+  const tid=String(part&&part.toolUseId||'').trim();
+  const liveTool=tid&&toolCallsByTid&&toolCallsByTid.get(tid);
+  if(liveTool){
+    const next={...liveTool};
+    const liveSnip=(resultsByTid&&resultsByTid[tid])||(persistedByTid&&persistedByTid[tid])||'';
+    if(liveSnip){
+      const patchSnippet=_cliPatchSnippetFromArgs(next.name||part.name||'tool', next.args||part.input||{});
+      next.snippet=_cliToolCardSnippet(liveSnip,patchSnippet);
+      next.is_diff=_cliToolCardHasDiffSnippet(liveSnip,patchSnippet);
+    }
+    if(next.done===undefined) next.done=true;
+    return next;
+  }
+  const name=part&&part.name||'tool';
+  const args=(part&&part.input&&typeof part.input==='object')?part.input:{};
+  const patchSnippet=_cliPatchSnippetFromArgs(name,args);
+  const resultSnippet=(resultsByTid&&tid&&resultsByTid[tid])||(persistedByTid&&tid&&persistedByTid[tid])||'';
+  return {
+    name,
+    tid,
+    id:tid,
+    assistant_msg_idx:rawIdx,
+    args:_toolArgsSnapshot(args),
+    snippet:_cliToolCardSnippet(resultSnippet,patchSnippet),
+    is_diff:_cliToolCardHasDiffSnippet(resultSnippet,patchSnippet),
+    done:true,
+  };
+}
 function _assistantTurnAnchorSettledFinalAnswer(message, content, context){
   const sceneFinal=_assistantAnchorSceneFinalAnswerText(message);
   const effectiveContent=String(content||'').trim()?content:sceneFinal;
@@ -11463,6 +11553,35 @@ function renderMessages(options){
       }
     }
   }
+  const transparentOrderedToolIds=new Set();
+  const transparentOrderedToolCallsByTid=new Map();
+  // These scans only feed the transparent-stream ordered render path; skip the
+  // O(messages×parts) work entirely in other modes (Opus perf finding #4932).
+  const _transparentModeActive=(typeof isTransparentStream==='function')&&isTransparentStream();
+  const transparentPersistedSnippetByTid={};
+  if(_transparentModeActive){
+    if(Array.isArray(S.toolCalls)){
+      for(const tc of S.toolCalls){
+        if(!tc||typeof tc!=='object') continue;
+        const tid=tc.tid||tc.id||tc.tool_call_id||tc.tool_use_id||tc.call_id||'';
+        if(tid&&!transparentOrderedToolCallsByTid.has(tid)) transparentOrderedToolCallsByTid.set(tid,tc);
+      }
+    }
+    // #4927 durable fallback: the ordered path must consult the persisted
+    // session.tool_calls snippet by tid too, or a cold/paginated load where the
+    // S.messages tool_result join misses renders an empty body — and its inline
+    // card then suppresses the post-loop derived card that WOULD have recovered.
+    try{
+      const persisted=(S.session&&Array.isArray(S.session.tool_calls))?S.session.tool_calls:[];
+      persisted.forEach(tc=>{
+        if(!tc||typeof tc!=='object') return;
+        const ptid=tc.tid||tc.id||tc.tool_call_id||tc.call_id||'';
+        const psnip=tc.snippet||tc.result||tc.output||tc.preview||'';
+        if(ptid&&psnip&&!transparentPersistedSnippetByTid[ptid]) transparentPersistedSnippetByTid[ptid]=String(psnip);
+      });
+    }catch(e){}
+  }
+  const transparentToolResultsByTid=_transparentModeActive?_collectToolResultSnippetsByTid(S.messages):{};
   // Windowed render loop replaces the legacy full loop:
   // for(let vi=0;vi<visWithIdx.length;vi++)
   for(let vi=0;vi<renderVisWithIdx.length;vi++){
@@ -11488,6 +11607,7 @@ function renderMessages(options){
     }
     let content=m.content||'';
     let thinkingText='';
+    let orderedTransparentParts=_transparentStreamOrderedParts(m);
     if(Array.isArray(content)){
       content=content.filter(p=>p&&p.type==='text').map(p=>p.text||p.content||'').join('\n');
     }
@@ -11496,7 +11616,17 @@ function renderMessages(options){
         session_id:sid,
         raw_idx:rawIdx,
       });
-      if(anchorFinal!==null) content=anchorFinal;
+      if(anchorFinal!==null){
+        content=anchorFinal;
+        if(Array.isArray(orderedTransparentParts)){
+          for(let i=orderedTransparentParts.length-1;i>=0;i--){
+            if(orderedTransparentParts[i]&&orderedTransparentParts[i].kind==='text'){
+              orderedTransparentParts[i]={...orderedTransparentParts[i], text:anchorFinal};
+              break;
+            }
+          }
+        }
+      }
     }
     if(typeof content==='string'){
       if(typeof window!=='undefined'&&typeof window._extractInlineThinkingFromContentForRender==='function'){
@@ -11640,6 +11770,64 @@ function renderMessages(options){
       inner.appendChild(currentAssistantTurn);
     }
     const seg=document.createElement('div');
+    if(Array.isArray(orderedTransparentParts)&&orderedTransparentParts.length){
+      const blocks=_assistantTurnBlocks(currentAssistantTurn);
+      const sessionMsgIdx=_messageSessionIndexForRawIdx(rawIdx);
+      const messageAnchorKey=_messageViewportAnchorKeyForMessage(m);
+      const lastTextPartIdx=(()=>{
+        for(let i=orderedTransparentParts.length-1;i>=0;i--){
+          if(
+            orderedTransparentParts[i]&&
+            orderedTransparentParts[i].kind==='text'&&
+            String(_transparentOrderedDisplayText(orderedTransparentParts[i].text)).trim()
+          ) return i;
+        }
+        return -1;
+      })();
+      let firstSeg=null;
+      if(thinkingText&&window._showThinking!==false){
+        if((isCompactWorklogMode()||isTransparentStream())&&_assistantThinkingBelongsInWorklog(m, rawIdx, toolCallAssistantIdxs)) assistantThinking.set(rawIdx, thinkingText);
+      }
+      orderedTransparentParts.forEach((part, partIdx)=>{
+        if(!part) return;
+        if(part.kind==='tool'){
+          const toolCall=_transparentOrderedToolCall(part, rawIdx, transparentOrderedToolCallsByTid, transparentToolResultsByTid, transparentPersistedSnippetByTid);
+          const toolRow=_decorateTransparentEventRow(buildToolCard(toolCall),{
+            type:'tool',
+            name:toolCall&&toolCall.name,
+            status:_transparentToolStatus(toolCall,true),
+            toolCall,
+            segmentSeq:toolCall&&toolCall.activitySegmentSeq,
+            burstId:(toolCall&&toolCall.activityBurstId)||m._activityBurstId,
+          });
+          blocks.appendChild(toolRow);
+          if(part.toolUseId) transparentOrderedToolIds.add(part.toolUseId);
+          return;
+        }
+        const orderedSeg=document.createElement('div');
+        const partDisplayText=_transparentOrderedDisplayText(part.text);
+        if(!String(partDisplayText).trim()) return;
+        orderedSeg.className='assistant-segment';
+        orderedSeg.dataset.msgIdx=rawIdx;
+        orderedSeg.dataset.sessionMsgIdx=sessionMsgIdx;
+        orderedSeg.dataset.messageAnchorKey=messageAnchorKey;
+        orderedSeg.dataset.rawText=String(partDisplayText||'').trim();
+        if(m._activityBurstId!==undefined&&m._activityBurstId!==null) orderedSeg.setAttribute('data-activity-burst-id',String(m._activityBurstId));
+        if(Number.isFinite(Number(m._liveSegmentSeq))) orderedSeg.setAttribute('data-live-segment-seq',String(Number(m._liveSegmentSeq)));
+        if(_ERR_MSG_RE.test(String(partDisplayText||'').trim())) orderedSeg.dataset.error='1';
+        if(!firstSeg&&thinkingText&&window._showThinking!==false&&!((isCompactWorklogMode()||isTransparentStream())&&_assistantThinkingBelongsInWorklog(m, rawIdx, toolCallAssistantIdxs))) orderedSeg.insertAdjacentHTML('beforeend', _thinkingCardHtml(thinkingText));
+        const isLastTextPart=partIdx===lastTextPartIdx;
+        const partBodyHtml=_getCachedRender(partDisplayText,false);
+        if(isLastTextPart&&statusHtml){
+          orderedSeg.insertAdjacentHTML('beforeend', statusHtml);
+        }
+        orderedSeg.insertAdjacentHTML('beforeend', `${isLastTextPart?filesHtml:''}<div class="msg-body">${partBodyHtml}</div>${isLastTextPart?footHtml:''}`);
+        blocks.appendChild(orderedSeg);
+        if(!firstSeg) firstSeg=orderedSeg;
+      });
+      assistantSegments.set(rawIdx, firstSeg||null);
+      continue;
+    }
     seg.className='assistant-segment';
     seg.dataset.msgIdx=rawIdx;
     seg.dataset.sessionMsgIdx=_messageSessionIndexForRawIdx(rawIdx);
@@ -12046,6 +12234,8 @@ function renderMessages(options){
     for(const s of assistantSegments.values()) if(s){const b=s.getAttribute('data-activity-burst-id');if(b)knownBurstIds.add(b);}
     for(const tc of (S.toolCalls||[])){
       if(!tc) continue;
+      const tid=tc.tid||tc.id||tc.tool_call_id||tc.tool_use_id||tc.call_id||'';
+      if(tid&&transparentOrderedToolIds.has(tid)) continue;
       const aIdx=tc.assistant_msg_idx!==undefined?parseInt(tc.assistant_msg_idx):-1;
       if(anchorOwnedAssistantRawIdxs.has(aIdx)) continue;
       if(virtualWindow.virtualized&&renderableRawIdxs.has(aIdx)&&!renderedRawIdxs.has(aIdx)) continue;
