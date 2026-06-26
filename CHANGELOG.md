@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.681] — 2026-06-26 — Release YK (Anthropic shows in the model picker when configured via OAuth token)
+
+### Fixed
+
+- **The model picker now detects Anthropic when it's configured through an OAuth token instead of `ANTHROPIC_API_KEY`.** WebUI's env-fallback provider detection only looked for `ANTHROPIC_API_KEY`, so an Anthropic setup using OAuth token env vars (`ANTHROPIC_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN`, which the shared agent already accepts) fell out of parity and the provider didn't surface. The fallback now derives the Anthropic env-var set from the shared agent provider registry (with a built-in fallback list), and env values are stripped before the availability check so a whitespace-only token can't false-positive the provider. Thanks @rodboev. (#4995, fixes #4770)
+
 ## [v0.51.680] — 2026-06-26 — Release YJ (session-index rebuild can't be clobbered by a late worker)
 
 ### Fixed

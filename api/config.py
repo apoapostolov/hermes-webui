@@ -1171,6 +1171,37 @@ _PROVIDER_ALIASES = {
 }
 
 
+def _get_anthropic_fallback_env_vars() -> tuple[str, ...]:
+    """Read Anthropic auth env vars from the shared agent registry when available."""
+    fallback = (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+    )
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY
+
+        anthropic = (
+            PROVIDER_REGISTRY.get("anthropic")
+            if isinstance(PROVIDER_REGISTRY, dict)
+            else None
+        )
+        env_vars = getattr(anthropic, "api_key_env_vars", None)
+        if not env_vars:
+            return fallback
+
+        out = []
+        for _var in env_vars:
+            if not isinstance(_var, str):
+                continue
+            _normalized = _var.strip()
+            if _normalized and _normalized not in out:
+                out.append(_normalized)
+        return tuple(out) if out else fallback
+    except Exception:
+        return fallback
+
+
 def _resolve_provider_alias(name: str) -> str:
     """Return the canonical provider slug for *name*.
 
@@ -5687,8 +5718,9 @@ def get_available_models(*, prefer_cache: bool = False, force_refresh: bool = Fa
                 except Exception:
                     logger.debug("Failed to parse hermes env file")
             all_env = {**env_keys}
+            _anthropic_env_vars = _get_anthropic_fallback_env_vars()
             for k in (
-                "ANTHROPIC_API_KEY",
+                *_anthropic_env_vars,
                 "OPENAI_API_KEY",
                 "OPENROUTER_API_KEY",
                 "GOOGLE_API_KEY",
@@ -5707,10 +5739,10 @@ def get_available_models(*, prefer_cache: bool = False, force_refresh: bool = Fa
                 "AWS_ACCESS_KEY_ID",
                 "AWS_SECRET_ACCESS_KEY",
             ):
-                val = _thread_local_env_value(k)
+                val = _thread_local_env_value(k).strip()
                 if val:
                     all_env[k] = val
-            if all_env.get("ANTHROPIC_API_KEY"):
+            if any(all_env.get(env_var) for env_var in _anthropic_env_vars):
                 detected_providers.add("anthropic")
             if all_env.get("OPENAI_API_KEY"):
                 # hermes-agent registers its OPENAI_API_KEY/OPENAI_BASE_URL provider
