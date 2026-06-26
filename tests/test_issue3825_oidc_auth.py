@@ -3,6 +3,8 @@ import json
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 
 class FakeHeaders(dict):
     def get(self, key, default=None):
@@ -242,3 +244,85 @@ def test_oidc_enablement_requires_explicit_allowlist(monkeypatch):
     )
 
     assert auth_oidc.is_oidc_enabled() is False
+
+def test_oidc_startup_warning_flags_partial_config(monkeypatch):
+    import api.auth_oidc as auth_oidc
+
+    monkeypatch.setattr(
+        auth_oidc,
+        "get_config",
+        lambda: {
+            "webui_oidc": {
+                "issuer": "https://issuer.example",
+                "client_id": "webui-client",
+            }
+        },
+    )
+
+    warning = auth_oidc.get_oidc_startup_warning()
+    assert warning is not None
+    assert "allow_claim" in warning
+    assert "allow_values" in warning
+
+def test_oidc_startup_warning_ignores_complete_config(monkeypatch):
+    import api.auth_oidc as auth_oidc
+
+    monkeypatch.setattr(
+        auth_oidc,
+        "get_config",
+        lambda: {
+            "webui_oidc": {
+                "issuer": "https://issuer.example",
+                "client_id": "webui-client",
+                "allow_claim": "email",
+                "allow_values": ["user@example.com"],
+            }
+        },
+    )
+
+    assert auth_oidc.get_oidc_startup_warning() is None
+
+def test_validate_id_token_rejects_mismatched_jwk_key_family(monkeypatch):
+    import api.auth_oidc as auth_oidc
+    from api.auth_oidc import OIDCAuthError
+
+    monkeypatch.setattr(
+        auth_oidc,
+        "_parse_jwt",
+        lambda _token: (
+            {"alg": "RS256", "kid": "key-1"},
+            {
+                "iss": "https://issuer.example",
+                "aud": "webui-client",
+                "exp": 32503680000,
+                "nonce": "nonce-token",
+                "sub": "user-123",
+            },
+            b"signed",
+            b"signature",
+        ),
+    )
+    monkeypatch.setattr(
+        auth_oidc,
+        "_get_jwks_document",
+        lambda _jwks_uri: {
+            "keys": [
+                {
+                    "kid": "key-1",
+                    "kty": "EC",
+                    "crv": "P-256",
+                    "x": "AQ",
+                    "y": "Ag",
+                }
+            ]
+        },
+    )
+
+    with pytest.raises(OIDCAuthError, match="did not contain the signing key"):
+        auth_oidc._validate_id_token(
+            "header.payload.signature",
+            client_id="webui-client",
+            issuer="https://issuer.example",
+            nonce="nonce-token",
+            jwks_uri="https://issuer.example/jwks",
+        )

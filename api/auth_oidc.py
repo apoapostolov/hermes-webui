@@ -54,6 +54,34 @@ def is_oidc_enabled() -> bool:
         and cfg.get("allow_values")
     )
 
+def get_oidc_startup_warning() -> str | None:
+    cfg = _resolve_oidc_config()
+    issuer = bool(cfg.get("issuer"))
+    client_id = bool(cfg.get("client_id"))
+    allow_claim = bool(cfg.get("allow_claim"))
+    allow_values = bool(cfg.get("allow_values"))
+
+    if not any((issuer, client_id, allow_claim, allow_values)):
+        return None
+    if issuer and client_id and allow_claim and allow_values:
+        return None
+
+    missing = []
+    if not issuer:
+        missing.append("issuer")
+    if not client_id:
+        missing.append("client_id")
+    if not allow_claim:
+        missing.append("allow_claim")
+    if not allow_values:
+        missing.append("allow_values")
+
+    joined = ", ".join(missing)
+    return (
+        "Native OIDC login is only partially configured; missing "
+        f"{joined}. The WebUI will not enable OIDC auth until all four fields are set."
+    )
+
 
 def build_authorization_redirect(
     request_base_url: str,
@@ -404,10 +432,20 @@ def _select_public_key(jwks: dict[str, Any], header: dict[str, Any]):
             continue
         if key.get("alg") not in (None, alg):
             continue
+        if not _jwk_matches_alg_family(key, alg):
+            continue
         matches.append(key)
     if not matches:
         raise OIDCAuthError("OIDC JWKS did not contain the signing key for this id_token", status_code=502)
     return _jwk_to_public_key(matches[0])
+
+def _jwk_matches_alg_family(jwk: dict[str, Any], alg: str) -> bool:
+    kty = str(jwk.get("kty") or "").strip()
+    if alg.startswith("RS"):
+        return kty == "RSA"
+    if alg.startswith("ES"):
+        return kty == "EC"
+    return True
 
 
 def _jwk_to_public_key(jwk: dict[str, Any]):
