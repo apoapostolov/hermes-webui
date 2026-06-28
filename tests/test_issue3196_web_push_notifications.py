@@ -184,6 +184,31 @@ def test_push_routes_fail_closed_when_server_not_ready(monkeypatch):
     assert _payload(subscribe_handler)["error"] == "Web Push is not configured"
 
 
+def test_push_routes_reject_unsafe_subscription_endpoints(monkeypatch, tmp_path):
+    import api.routes as routes
+    import api.web_push as web_push
+
+    store_path = tmp_path / "webui_push_subscriptions.json"
+    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(web_push, "_subscription_store_path", lambda: store_path)
+    monkeypatch.setattr(web_push, "web_push_status", lambda: {
+        "enabled": True,
+        "configured": True,
+        "dependency_available": True,
+    })
+
+    insecure_handler = _JSONHandler({"subscription": _subscription("http://push.example/browser")})
+    assert routes.handle_post(insecure_handler, SimpleNamespace(path="/api/push/subscribe")) is not False
+    assert insecure_handler.status == 400
+    assert _payload(insecure_handler)["error"] == "subscription endpoint must use https"
+
+    local_handler = _JSONHandler({"subscription": _subscription("https://127.0.0.1/browser")})
+    assert routes.handle_post(local_handler, SimpleNamespace(path="/api/push/subscribe")) is not False
+    assert local_handler.status == 400
+    assert _payload(local_handler)["error"] == "subscription endpoint resolved to a private IP: 127.0.0.1"
+    assert web_push.list_subscriptions() == []
+
+
 def test_push_unsubscribe_requires_owner_cookie(monkeypatch, tmp_path):
     import api.routes as routes
     import api.web_push as web_push
@@ -345,6 +370,48 @@ def test_send_web_push_skips_other_browser_owners(monkeypatch, tmp_path):
 
     assert sent == 1
     assert seen == ["https://push.example/a"]
+
+
+def test_send_web_push_prunes_invalid_stored_subscriptions(monkeypatch, tmp_path):
+    import api.config as config
+    import api.web_push as web_push
+
+    store_path = tmp_path / "webui_push_subscriptions.json"
+    monkeypatch.setattr(web_push, "_subscription_store_path", lambda: store_path)
+    monkeypatch.setattr(config, "web_push_configured", lambda: True)
+    monkeypatch.setattr(config, "web_push_private_key", lambda: "private-key")
+    monkeypatch.setattr(config, "web_push_subject", lambda: "mailto:test@example.com")
+
+    seen = []
+
+    def _fake_webpush(*, subscription_info, data, vapid_private_key, vapid_claims, timeout):
+        seen.append(subscription_info["endpoint"])
+
+    monkeypatch.setattr(web_push, "_get_pywebpush_impl", lambda: (_fake_webpush, RuntimeError))
+
+    web_push._save_store({
+        "subscriptions": [
+            {
+                **_subscription("https://127.0.0.1/browser"),
+                "owner": "owner-a",
+            },
+            {
+                **_subscription("https://push.example/live"),
+                "owner": "owner-a",
+            },
+        ]
+    })
+
+    sent = web_push.send_web_push(
+        web_push._notification_payload("Response complete", "Task finished", session_id="session-123"),
+        owner_key="owner-a",
+    )
+
+    assert sent == 1
+    assert seen == ["https://push.example/live"]
+    assert [sub["endpoint"] for sub in web_push.list_subscriptions(owner_key="owner-a")] == [
+        "https://push.example/live"
+    ]
 
 
 def test_bg_task_complete_producer_fans_out_web_push(monkeypatch):

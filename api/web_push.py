@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 import secrets
+import socket
 import tempfile
 import threading
 from http.cookies import SimpleCookie
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,7 @@ _PUSH_OWNER_COOKIE_NAME = "hermes_push_owner"
 _PUSH_OWNER_COOKIE_MAX_AGE_SECONDS = 86400 * 365
 _STORE_LOCK = threading.Lock()
 _WEB_PUSH_TIMEOUT_SECONDS = 10
+_LOCAL_PUSH_HOST_ALIASES = {"localhost", "ip6-localhost", "ip6-loopback"}
 
 
 def _subscription_store_path() -> Path:
@@ -46,7 +49,13 @@ def _load_store() -> dict:
         if not isinstance(sub, dict):
             continue
         try:
-            normalized.append(_normalize_subscription(sub, owner_key=sub.get("owner")))
+            normalized.append(
+                _normalize_subscription(
+                    sub,
+                    owner_key=sub.get("owner"),
+                    validate_endpoint=False,
+                )
+            )
         except ValueError:
             logger.debug("Skipping malformed Web Push subscription entry", exc_info=True)
     return {"subscriptions": normalized}
@@ -74,6 +83,41 @@ def _normalize_push_owner(owner_key: str | None) -> str:
     if not owner:
         raise ValueError("web push owner is required")
     return owner
+
+
+def _reject_unsafe_push_endpoint(endpoint: str) -> str:
+    endpoint = str(endpoint or "").strip()
+    if not endpoint:
+        raise ValueError("subscription endpoint is required")
+    parsed = urlparse(endpoint)
+    if parsed.scheme.lower() != "https":
+        raise ValueError("subscription endpoint must use https")
+    if parsed.username or parsed.password:
+        raise ValueError("subscription endpoint must not include credentials")
+    host = str(parsed.hostname or "").strip().lower()
+    if not host:
+        raise ValueError("subscription endpoint host is required")
+    if host in _LOCAL_PUSH_HOST_ALIASES or host.endswith(".localhost"):
+        raise ValueError("subscription endpoint must not target localhost")
+    try:
+        resolved_ips = socket.getaddrinfo(host, parsed.port or 443)
+    except socket.gaierror:
+        return endpoint
+    for _, _, _, _, addr in resolved_ips:
+        try:
+            addr_obj = ipaddress.ip_address(addr[0])
+        except ValueError:
+            continue
+        if (
+            addr_obj.is_private
+            or addr_obj.is_loopback
+            or addr_obj.is_link_local
+            or addr_obj.is_multicast
+            or addr_obj.is_reserved
+            or addr_obj.is_unspecified
+        ):
+            raise ValueError(f"subscription endpoint resolved to a private IP: {addr[0]}")
+    return endpoint
 
 
 def _parse_cookie_value(handler, cookie_name: str) -> str | None:
@@ -124,9 +168,16 @@ def ensure_push_owner_cookie(handler) -> tuple[str, str | None]:
     return owner, cookie[_PUSH_OWNER_COOKIE_NAME].OutputString()
 
 
-def _normalize_subscription(subscription: dict, *, owner_key: str | None) -> dict:
+def _normalize_subscription(
+    subscription: dict,
+    *,
+    owner_key: str | None,
+    validate_endpoint: bool = True,
+) -> dict:
     endpoint = str((subscription or {}).get("endpoint") or "").strip()
-    if not endpoint:
+    if validate_endpoint:
+        endpoint = _reject_unsafe_push_endpoint(endpoint)
+    elif not endpoint:
         raise ValueError("subscription endpoint is required")
     keys = (subscription or {}).get("keys")
     if not isinstance(keys, dict):
@@ -278,6 +329,14 @@ def send_web_push(payload: dict, *, owner_key: str | None) -> int:
     claims = {"sub": web_push_subject()}
     data = json.dumps(payload, ensure_ascii=False)
     for subscription in subscriptions:
+        endpoint = str(subscription.get("endpoint") or "").strip()
+        try:
+            _reject_unsafe_push_endpoint(endpoint)
+        except ValueError:
+            if endpoint:
+                stale_endpoints.append(endpoint)
+            logger.debug("Skipping unsafe Web Push endpoint %s", endpoint, exc_info=True)
+            continue
         try:
             webpush_fn(
                 subscription_info=subscription,
@@ -291,8 +350,8 @@ def send_web_push(payload: dict, *, owner_key: str | None) -> int:
             response = getattr(exc, "response", None)
             status_code = getattr(response, "status_code", None) or getattr(response, "status", None)
             if status_code in (404, 410):
-                stale_endpoints.append(str(subscription.get("endpoint") or ""))
-            logger.debug("Web Push send failed for %s", subscription.get("endpoint"), exc_info=True)
+                stale_endpoints.append(endpoint)
+            logger.debug("Web Push send failed for %s", endpoint, exc_info=True)
     for endpoint in stale_endpoints:
         remove_subscription(endpoint, owner_key=owner)
     return sent
