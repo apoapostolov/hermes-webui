@@ -310,6 +310,48 @@ def test_terminal_error_restore_replaces_when_snapshots_are_fuller(driver_path):
     assert observed == expected, f"fuller settled snapshot should replace visible messages: {observed}"
 
 
+def test_terminal_error_restore_replaces_shorter_authoritative_snapshot_when_prefix_does_not_match(driver_path):
+    """A shorter settled snapshot that changes the assistant turn must replace stale live fragments."""
+    outcome = _run_scenario(driver_path, {
+        "action": "restore_shorter_terminal",
+        "state": {
+            "session": {"session_id": "session-5224", "message_count": 5},
+            "messages": [
+                {"role": "user", "content": "Question about data?", "_ts": "u1"},
+                {"role": "assistant", "content": "Visible assistant fragment one", "_ts": "a1"},
+                {"role": "assistant", "content": "Visible assistant fragment two", "_ts": "a2"},
+                {"role": "assistant", "content": "**Connection interrupted:** The browser lost the live SSE connection before the response finished.", "_ts": "err"},
+            ],
+            "activeStreamId": "stream-5224",
+        },
+        "apiPayload": {
+            "session": {
+                "session_id": "session-5224",
+                "active_stream_id": None,
+                "pending_user_message": None,
+                "messages": [
+                    {"role": "user", "content": "Question about data?", "_ts": "u1"},
+                    {"role": "assistant", "content": "Settled final answer", "_ts": "final"},
+                ],
+            },
+        },
+        "activeSid": "session-5224",
+        "streamId": "stream-5224",
+        "isActiveSession": True,
+        "isSessionCurrentPane": True,
+        "isSessionActivelyViewed": False,
+    })
+
+    observed = [(item["role"], item["content"]) for item in outcome["messages"]]
+    assert observed == [
+        ("user", "Question about data?"),
+        ("assistant", "Settled final answer"),
+    ], f"authoritative settled snapshot should replace stale live tail: {observed}"
+    assert outcome["terminalMarkerCount"] == 0, (
+        f"terminal marker should not survive authoritative settled replacement, got {outcome['terminalMarkerCount']}"
+    )
+
+
 def test_terminal_error_marker_is_single_instance_and_not_duplicated(driver_path):
     """Appending terminal error marker repeatedly should keep one marker and remove duplicates."""
     outcome = _run_scenario(driver_path, {

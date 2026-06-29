@@ -5746,13 +5746,22 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
         S.session=session;
         const _nextMsgs3018=(session.messages||[]).filter(m=>m&&m.role);
         const _currentMessages=Array.isArray(S.messages)?S.messages:[];
+        const _currentVisibleMessages=_filterRecoveryControlMessages(_currentMessages || []);
         const _stagedMessages=_carryForwardEphemeralTurnFields(_currentMessages, _nextMsgs3018);
-        const _preserveCurrentTranscript=preserveVisibleOnShorterTerminalSnapshot&&
-          _stagedMessages.length>0&&
-          _stagedMessages.length<_currentMessages.length;
-        const _nextMessageKeys=new Set(_stagedMessages.map(_messageIdentityKey).filter(Boolean));
-        const _tailMessages=_currentMessages.filter(m=>!_nextMessageKeys.has(_messageIdentityKey(m)));
-        const _resolvedMessages=_preserveCurrentTranscript?[..._stagedMessages,..._tailMessages]:_stagedMessages;
+        const _stagedMatchesCurrentPrefix=(
+          _stagedMessages.length>0 &&
+          _stagedMessages.length<_currentVisibleMessages.length &&
+          _currentVisibleMessages.some(_isTerminalStreamErrorMarkerMessage) &&
+          _stagedMessages.every((message, idx)=>{
+            const stagedKey=_messageIdentityKey(message);
+            const currentKey=_messageIdentityKey(_currentVisibleMessages[idx]);
+            return !!stagedKey && stagedKey===currentKey;
+          })
+        );
+        const _preserveCurrentTranscript=preserveVisibleOnShorterTerminalSnapshot&&_stagedMatchesCurrentPrefix;
+        const _resolvedMessages=_preserveCurrentTranscript
+          ? [..._stagedMessages,..._currentVisibleMessages.slice(_stagedMessages.length)]
+          : _stagedMessages;
         S.messages=_filterRecoveryControlMessages(_resolvedMessages || []);
         _attachProjectedAnchorSceneToLastAssistant(S.messages);
         if(typeof _hydrateTodosFromSession==='function') _hydrateTodosFromSession(S.session);
