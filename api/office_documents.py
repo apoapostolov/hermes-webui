@@ -14,7 +14,8 @@ OFFICE_PREVIEW_KIND = "office"
 OFFICE_RENDER_MODE = "code"
 
 _DOCX_BODY_CHILDREN = {qn("w:p"), qn("w:sectPr")}
-_DOCX_PARAGRAPH_CHILDREN = {qn("w:r")}
+_DOCX_PARAGRAPH_CHILDREN = {qn("w:pPr"), qn("w:r")}
+_DOCX_SAFE_PARAGRAPH_PROPERTY_CHILDREN = {qn("w:pStyle")}
 _DOCX_RUN_CHILDREN = {qn("w:t")}
 _DOCX_UNSAFE_SECTION_CHILDREN = {qn("w:headerReference"), qn("w:footerReference")}
 
@@ -41,15 +42,34 @@ def _preview_line_count(content: str) -> int:
 
 def _docx_preview_text(document: Document) -> str:
     chunks: list[str] = []
-    for paragraph in document.paragraphs:
-        chunks.append(paragraph.text or "")
-    for table_index, table in enumerate(document.tables, start=1):
+    paragraphs_by_element = {paragraph._p: paragraph for paragraph in document.paragraphs}
+    tables_by_element = {
+        table._tbl: (table_index, table) for table_index, table in enumerate(document.tables, start=1)
+    }
+    for child in document._element.body:
+        if child.tag == qn("w:p"):
+            paragraph = paragraphs_by_element.get(child)
+            if paragraph is not None:
+                chunks.append(paragraph.text or "")
+            continue
+        if child.tag != qn("w:tbl"):
+            continue
+        table_index, table = tables_by_element[child]
         table_lines = [f"Table {table_index}"]
         for row in table.rows:
             cells = [_normalise_preview_text(cell.text) for cell in row.cells]
             table_lines.append("\t".join(cells))
         chunks.append("\n".join(table_lines))
     return "\n".join(chunks).strip()
+
+
+def _docx_paragraph_properties_are_safe(properties) -> bool:
+    for child in properties:
+        if child.tag not in _DOCX_SAFE_PARAGRAPH_PROPERTY_CHILDREN:
+            return False
+        if child.tag == qn("w:pStyle") and child.get(qn("w:val")) != "Normal":
+            return False
+    return True
 
 
 def _docx_editability(document: Document) -> tuple[bool, str | None]:
@@ -64,6 +84,8 @@ def _docx_editability(document: Document) -> tuple[bool, str | None]:
     for paragraph in document.paragraphs:
         for child in paragraph._p:
             if child.tag not in _DOCX_PARAGRAPH_CHILDREN:
+                return False, "docx contains unsupported paragraph structures"
+            if child.tag == qn("w:pPr") and not _docx_paragraph_properties_are_safe(child):
                 return False, "docx contains unsupported paragraph structures"
         for run in paragraph.runs:
             for child in run._r:

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 from docx import Document as DocxDocument
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from openpyxl import Workbook
 from pptx import Presentation
 from pptx.util import Inches
@@ -40,6 +42,7 @@ def _rich_docx_bytes() -> bytes:
     table = document.add_table(rows=1, cols=2)
     table.cell(0, 0).text = "left"
     table.cell(0, 1).text = "right"
+    document.add_paragraph("Tail paragraph")
     buffer = io.BytesIO()
     document.save(buffer)
     return buffer.getvalue()
@@ -52,6 +55,19 @@ def _formatted_docx_bytes() -> bytes:
     buffer = io.BytesIO()
     document.save(buffer)
     return buffer.getvalue()
+
+
+def _paragraph_style_docx_bytes(style: str) -> bytes:
+    document = DocxDocument()
+    paragraph = document.add_paragraph("Styled paragraph")
+    properties = paragraph._p.get_or_add_pPr()
+    paragraph_style = OxmlElement("w:pStyle")
+    paragraph_style.set(qn("w:val"), style)
+    properties.append(paragraph_style)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
 
 def _header_docx_bytes() -> bytes:
     document = DocxDocument()
@@ -121,6 +137,34 @@ def test_docx_paragraph_projection_round_trips_simple_documents():
     assert saved_preview["editable"] is True
     assert saved_preview["content"] == "alpha\nbeta\ngamma"
     assert [paragraph.text for paragraph in round_trip.paragraphs] == ["alpha", "beta", "gamma"]
+
+
+def test_docx_preview_preserves_interleaved_table_order():
+    preview = preview_office_document("report.docx", _rich_docx_bytes())
+
+    assert preview["content"] == "Lead paragraph\nTable 1\nleft\tright\nTail paragraph"
+
+
+def test_docx_with_explicit_normal_style_stays_editable():
+    original_bytes = _paragraph_style_docx_bytes("Normal")
+    preview = preview_office_document("styled.docx", original_bytes)
+
+    assert preview["editable"] is True
+    assert preview["content"] == "Styled paragraph"
+
+    saved_preview, saved_bytes = save_office_document("styled.docx", original_bytes, "Edited paragraph")
+    round_trip = DocxDocument(io.BytesIO(saved_bytes))
+
+    assert saved_preview["editable"] is True
+    assert saved_preview["content"] == "Edited paragraph"
+    assert [paragraph.text for paragraph in round_trip.paragraphs] == ["Edited paragraph"]
+
+
+def test_docx_with_non_default_paragraph_style_stays_preview_only():
+    preview = preview_office_document("heading.docx", _paragraph_style_docx_bytes("Heading1"))
+
+    assert preview["editable"] is False
+    assert preview.get("edit_blocked_reason")
 
 
 def _office_state_block() -> str:
