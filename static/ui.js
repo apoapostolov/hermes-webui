@@ -7279,8 +7279,9 @@ function renderTodoRow(todo,options={}){
   const visual=todoStatusVisual(status);
   const showMetadata=!(options&&options.metadata===false);
   const isCompleted=status==='completed';
-  const contentColor=isCompleted?'var(--muted)':'var(--text)';
-  const completedStyle=isCompleted?'text-decoration:line-through;opacity:.5':'';
+  const isCancelled=status==='cancelled';
+  const contentColor=(isCompleted||isCancelled)?'var(--muted)':'var(--text)';
+  const completedStyle=(isCompleted||isCancelled)?'text-decoration:line-through;opacity:.5':'';
   const metadata=showMetadata
     ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;opacity:.6">${esc(td.id)} · ${esc(status)}</div>`
     : '';
