@@ -190,6 +190,11 @@ def test_docx_with_non_default_paragraph_style_stays_preview_only():
 
 def test_docx_preview_truncation_disables_editing(monkeypatch):
     monkeypatch.setattr(office_documents, "MAX_DOCX_PREVIEW_BLOCKS", 1)
+    monkeypatch.setattr(
+        office_documents,
+        "_docx_editability",
+        lambda _document: pytest.fail("truncated docx preview should not run full editability scan"),
+    )
 
     preview = preview_office_document("story.docx", _simple_docx_bytes("alpha", "beta"))
 

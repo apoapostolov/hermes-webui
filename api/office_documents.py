@@ -195,10 +195,9 @@ def _preview_docx(raw: bytes) -> tuple[str, bool, str | None, bool]:
     except Exception as exc:  # pragma: no cover - library-specific failure mode
         raise ValueError("Unable to read DOCX preview") from exc
     content, truncated = _docx_preview_text(document)
+    if truncated:
+        return content, False, "docx preview exceeds safe limits", True
     editable, reason = _docx_editability(document)
-    if truncated and editable:
-        editable = False
-        reason = "docx preview exceeds safe limits"
     return content, editable, reason, truncated
 
 
