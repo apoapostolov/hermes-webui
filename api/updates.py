@@ -1262,11 +1262,6 @@ def _ensure_gateway_restart_for_agent_update() -> tuple[bool, dict]:
 
 
 def _agent_gateway_restart_failure_message(target: str, restart_result: dict) -> str:
-    if not isinstance(restart_result, dict):
-        return (
-            f'{target} updated, but gateway restart did not complete. '
-            'Run `hermes gateway restart` manually.'
-        )
     if restart_result.get("message"):
         return (
             f'{target} updated, but gateway restart did not complete: '
