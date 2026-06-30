@@ -12118,7 +12118,7 @@ def handle_post(handler, parsed) -> bool:
         except ValueError as e:
             return bad(handler, str(e))
         try:
-            s = _get_or_materialize_session(body["session_id"], refresh_cli_messages=True)
+            s = _get_or_materialize_session(body["session_id"])
         except KeyError:
             return bad(handler, "Session not found", 404)
         except PermissionError:
@@ -18132,7 +18132,7 @@ def _handle_chat_start(handler, body, diag=None):
             return bad(handler, str(e))
         diag.stage("get_session") if diag else None
         try:
-            s = _get_or_materialize_session(body["session_id"])
+            s = _get_or_materialize_session(body["session_id"], refresh_cli_messages=True)
         except KeyError:
             # No WebUI sidecar. If this is a foreign-origin session (CLI,
             # TUI, Desktop) with recoverable state.db messages, claim it by

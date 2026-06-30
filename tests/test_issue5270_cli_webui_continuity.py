@@ -242,6 +242,61 @@ def test_already_claimed_cli_sidecar_still_sees_cli_prior_assistant_on_first_web
     assert _history_contents(history) == [CLI_PROMPT, CLI_REPLY]
 
 
+def test_chat_start_refreshes_cli_messages_before_first_webui_turn(monkeypatch, tmp_path):
+    _config, models, routes, _streaming, _state_db = _install_cli_continuity_env(monkeypatch, tmp_path)
+
+    session = models.Session(
+        session_id="issue5270_cli_child_chat_start",
+        title="Claimed CLI child",
+        workspace=str(tmp_path),
+        model="test-model",
+        messages=[{"role": "user", "content": CLI_PROMPT, "timestamp": 1.0}],
+        context_messages=[{"role": "user", "content": CLI_PROMPT, "timestamp": 1.0}],
+        is_cli_session=True,
+        source_tag="cli",
+        raw_source="cli",
+        session_source="cli",
+        source_label="CLI",
+        read_only=False,
+    )
+
+    seen: dict[str, bool] = {}
+
+    def _fake_get_or_materialize_session(sid, *, refresh_cli_messages=False):
+        seen["refresh_cli_messages"] = refresh_cli_messages
+        assert sid == session.session_id
+        return session
+
+    def _fake_start_run(s, **kwargs):
+        assert s is session
+        assert seen["refresh_cli_messages"] is True
+        return {"ok": True}
+
+    monkeypatch.setattr(routes, "_get_or_materialize_session", _fake_get_or_materialize_session)
+    monkeypatch.setattr(routes, "_session_visible_to_active_profile", lambda *args, **kwargs: True)
+    monkeypatch.setattr(routes, "_resolve_chat_workspace_with_recovery", lambda *args, **kwargs: str(tmp_path))
+    monkeypatch.setattr(routes, "_read_profile_model_config", lambda *args, **kwargs: (None, None))
+    monkeypatch.setattr(
+        routes,
+        "_resolve_compatible_session_model_state",
+        lambda *args, **kwargs: ("test-model", None, "test-model"),
+    )
+    monkeypatch.setattr(routes, "_start_run", _fake_start_run)
+    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200: {"status": status, **payload})
+
+    response = routes._handle_chat_start(
+        None,
+        {
+            "session_id": session.session_id,
+            "message": WEBUI_FOLLOWUP,
+        },
+    )
+
+    assert seen["refresh_cli_messages"] is True
+    assert response["ok"] is True
+    assert response["status"] == 200
+
+
 def test_regular_cli_sessions_remain_writable_after_fix(monkeypatch, tmp_path):
     _config, _models, routes, _streaming, state_db = _install_cli_continuity_env(monkeypatch, tmp_path)
     sid = "issue5270_cli_child_writable"
