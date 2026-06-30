@@ -5930,6 +5930,12 @@ def _resolve_compatible_session_model_state(
     """
     model = str(model_id or "").strip()
     requested_provider = _clean_session_model_provider(model_provider)
+    if model and requested_provider == "moa":
+        if model.startswith("@moa:"):
+            return model.split(":", 1)[1].strip(), "moa", True
+        if model.lower().startswith("moa/"):
+            return model.split("/", 1)[1].strip(), "moa", True
+        return model, "moa", False
     if model and requested_provider and model.startswith(f"@{requested_provider}:"):
         try:
             from api.config import cfg as _active_cfg
@@ -19149,6 +19155,15 @@ def _handle_chat_start(handler, body, diag=None):
             profile_default_model=_pp_default,
             explicit_model_pick=explicit_model_pick,
         )
+        if model_provider == "moa" and moa_config is None:
+            if webui_gateway_chat_enabled(get_config()):
+                return bad(handler, "MoA override is unavailable on gateway-backed sessions", 409)
+            from api.commands import resolve_moa_config
+
+            try:
+                moa_config = resolve_moa_config(model)
+            except RuntimeError as e:
+                return bad(handler, str(e), 503)
         # NOTE: runtime-adapter selection is delegated to _start_run (shared
         # with start_session_turn so both entry points behave identically
         # under runtime_adapter_enabled() / runtime_adapter_runner_enabled()
