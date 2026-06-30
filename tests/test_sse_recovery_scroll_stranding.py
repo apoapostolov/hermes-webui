@@ -104,14 +104,25 @@ def test_sse_recovery_paths_capture_follow_intent_and_refollow():
 
 
 def test_follow_intent_captured_before_mutation():
-    # Ordering invariant: the _wasFollowingAtDisconnect capture must appear BEFORE
-    # the S.messages.push of the Connection-interrupted notice (capturing after the
-    # mutation would read a post-push bottom-distance and defeat the fix).
+    # Ordering invariant: inside _handleStreamError, the _wasFollowingAtDisconnect
+    # capture must appear BEFORE the terminal-error marker is inserted into
+    # S.messages (capturing after the mutation would read a post-insert
+    # bottom-distance and defeat the fix). Scope the search to the
+    # _handleStreamError function body — messages.js has more than one
+    # "Connection interrupted" push and more than one _handleStreamError
+    # reference, so a global str.find() would compare across unrelated paths.
     src = MESSAGES_JS
-    cap = src.find("_wasFollowingAtDisconnect=")
-    push = src.find("**Connection interrupted:**")
-    assert cap != -1 and push != -1
-    assert cap < push, "follow-intent must be captured BEFORE the interrupted-notice push"
+    fn = src.find("function _handleStreamError")
+    assert fn != -1, "could not locate _handleStreamError"
+    body = src[fn:fn + 8000]
+    cap = body.find("_wasFollowingAtDisconnect=")
+    mutation = body.find("_ensureSingleTerminalStreamErrorMarker(S.messages)")
+    assert cap != -1, "follow-intent capture not found in _handleStreamError"
+    assert mutation != -1, "terminal-error marker insertion not found in _handleStreamError"
+    assert cap < mutation, (
+        "follow-intent must be captured BEFORE the terminal-error marker is "
+        "inserted into S.messages"
+    )
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node required for behavioral test")
@@ -150,4 +161,3 @@ def test_sticky_follow_invariant_unpinned_within_1200_is_not_refollowed():
     # Scrolled far away (not near bottom), pinned flag irrelevant → not re-followed.
     assert run(near_bottom=False, unpinned=False) is False
     assert run(near_bottom=False, unpinned=True) is False
-
