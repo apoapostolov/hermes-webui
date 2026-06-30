@@ -95,7 +95,8 @@ class TestSidebarCancelAction:
     def test_menu_delete_optimistically_removes_sidebar_row_before_backend_cleanup(self):
         """Context-menu Delete should not keep the row visible while slow DELETE cleanup runs."""
         body = _function_body(SESSIONS_JS, "_openSessionActionMenu", 8400)
-        assert "await deleteSession(session.session_id,()=>Promise.resolve());" in body, (
+        compact_body = "".join(body.split())
+        assert "awaitdeleteSession(session.session_id,()=>Promise.resolve())" in compact_body, (
             "menu Delete must pass an immediate beforeDelete hook so deleteSession() "
             "optimistically removes the sidebar row before awaiting /api/session/delete"
         )
