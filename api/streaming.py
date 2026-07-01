@@ -6694,15 +6694,35 @@ def _run_agent_streaming(
         s = get_session(session_id)
         update_active_run(stream_id, phase="running", session_id=session_id)
         s.workspace = str(Path(workspace).expanduser().resolve())
-        s.model = model
+        _last_persisted_model = None
+        _last_persisted_provider = None
+        _turn_owns_persisted_model = False
         provider_context = (
             str(model_provider).strip().lower()
             if model_provider is not None
             else getattr(s, "model_provider", None)
         )
-        s.model_provider = provider_context or None
-
+        provider_context = str(provider_context).strip().lower() if provider_context else None
         _agent_lock = _get_session_agent_lock(session_id)
+        # #4251: the route layer already persisted this turn's model under the
+        # session lock before dispatch, so a mismatch here means a newer picker
+        # write won the race and must not be clobbered by the worker thread.
+        with _agent_lock:
+            _last_persisted_model = getattr(s, "model", None)
+            _last_persisted_provider = getattr(s, "model_provider", None)
+            if _last_persisted_provider is not None:
+                _last_persisted_provider = str(_last_persisted_provider).strip().lower() or None
+            _persisted_model_is_empty = _last_persisted_model in (None, "")
+            _provider_matches = _last_persisted_provider in (None, provider_context)
+            if _persisted_model_is_empty or (
+                _last_persisted_model == model and _provider_matches
+            ):
+                s.model = model
+                s.model_provider = provider_context
+                _last_persisted_model = model
+                _last_persisted_provider = provider_context
+                _turn_owns_persisted_model = True
+
         # TD1: set thread-local env context so concurrent sessions don't clobber globals
         # Check for pre-flight cancel (user cancelled before agent even started)
         if cancel_event.is_set():
@@ -6742,9 +6762,21 @@ def _run_agent_streaming(
             profile_home=_profile_home,
             has_profile=bool(getattr(s, "profile", None)),
         )
-        s.model_provider = provider_context
-        if _repaired and model != (s.model or ""):
-            s.model = model
+        # #4251: only apply the profile-repair persistence if this turn still
+        # owns the session model/provider pair it last wrote.
+        provider_context = str(provider_context).strip().lower() if provider_context else None
+        with _agent_lock:
+            _current_provider = getattr(s, "model_provider", None)
+            if _current_provider is not None:
+                _current_provider = str(_current_provider).strip().lower() or None
+            if (
+                _turn_owns_persisted_model
+                and getattr(s, "model", None) == _last_persisted_model
+                and _current_provider == _last_persisted_provider
+            ):
+                s.model_provider = provider_context
+                if _repaired and model != (s.model or ""):
+                    s.model = model
 
         # Capture the resolved profile name now, while profile context is
         # reliable. Used in the compression migration block to stamp s.profile
