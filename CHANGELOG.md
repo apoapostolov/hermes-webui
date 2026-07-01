@@ -9,6 +9,8 @@ _No unreleased changes. Entries are moved into their version block when a releas
 
 ### Fixed
 
+- **Delegated subagent sessions no longer vanish from the sidebar.** A subagent (delegate_task) child whose sidebar row was built from a stale sidecar reporting 0 messages now receives its real message count from the agent state.db, so it stays visible (nested under its parent) instead of being silently dropped by the sidebar visibility filter. (#5308)
+
 - **No more scroll jump-back on mobile while messages load.** When the app realigns the viewport after loading older messages, mobile browsers no longer double-compensate the scroll position (their native overflow-anchor fighting the app's own scroll write), which caused a visible jump. Desktop behavior is unchanged. (#5338)
 
 - **No more white flicker/flash while the assistant streams on light themes.** Live token-by-token markdown updates no longer inherit the global dark/light `color`/`background` transition, so the streaming turn paints instantly instead of briefly fading on each token. Theme-switch transitions elsewhere are unchanged. (#5328)
