@@ -630,3 +630,49 @@ def test_archive_limit_error_still_raised_over_corrupt_catch():
             preview_office_document("big.docx", raw)
     finally:
         office_documents.MAX_OFFICE_ARCHIVE_MEMBER_BYTES = original
+
+
+def _authored_docx_bytes() -> bytes:
+    """A docx carrying core-properties metadata and body text (like every
+    Word-authored file)."""
+    document = DocxDocument()
+    document.core_properties.author = "Jane Author"
+    document.core_properties.title = "Quarterly Report"
+    document.add_paragraph("Body text here")
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def test_unedited_docx_save_preserves_core_properties():
+    """Round-trip fidelity: an unedited open->save must NOT wipe author/title.
+
+    The pre-fix save rebuilt the package from python-docx's blank template, so
+    metadata/styles were silently lost even when the user changed nothing (the
+    editor prefills the textarea from the preview). Rebuilding from the current
+    package preserves docProps/styles/theme."""
+    raw = _authored_docx_bytes()
+    preview = preview_office_document("authored.docx", raw)
+    assert preview["editable"] is True
+
+    _saved_preview, saved_bytes = save_office_document(
+        "authored.docx", raw, preview["content"]
+    )
+    reloaded = DocxDocument(io.BytesIO(saved_bytes))
+    assert reloaded.core_properties.author == "Jane Author"
+    assert reloaded.core_properties.title == "Quarterly Report"
+    assert "Body text here" in [p.text for p in reloaded.paragraphs]
+
+
+def test_oversized_docx_save_content_rejected_before_build():
+    """Write-surface DoS guard: content exceeding the editable char/line caps is
+    rejected up front, before the quadratic add_paragraph build loop runs."""
+    raw = _authored_docx_bytes()
+    # Exceed the paragraph-count cap (MAX_DOCX_PREVIEW_BLOCKS).
+    too_many_lines = "\n".join("x" for _ in range(office_documents.MAX_DOCX_PREVIEW_BLOCKS + 50))
+    with pytest.raises(ValueError):
+        save_office_document("authored.docx", raw, too_many_lines)
+    # Exceed the char cap with few lines.
+    too_many_chars = "a" * (office_documents.MAX_OFFICE_PREVIEW_CHARS + 1)
+    with pytest.raises(ValueError):
+        save_office_document("authored.docx", raw, too_many_chars)

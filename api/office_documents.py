@@ -579,14 +579,43 @@ def preview_office_document(path: str | Path, raw: bytes) -> dict:
     return payload
 
 
-def _docx_bytes_from_text(content: str) -> bytes:
-    document = _load_docx_document()()
+def _docx_bytes_from_text(content: str, current_bytes: bytes | None = None) -> bytes:
+    """Rebuild a docx from edited plain text, preserving the original package.
+
+    We reload the CURRENT document (styles.xml, docProps/core.xml, theme,
+    settings, sectPr) and replace only the body's paragraph content, rather than
+    starting from python-docx's blank template. Building from the blank template
+    silently wiped author/title/custom styles on an unedited open→save — the
+    same fail-closed round-trip class the sectPr and run-whitespace fixes closed.
+    When current_bytes is unavailable we fall back to a fresh document.
+
+    Content is bounded BEFORE the (quadratic — python-docx scans for sectPr on
+    every add_paragraph) build loop: an editable preview is capped at
+    MAX_OFFICE_PREVIEW_CHARS and MAX_DOCX_PREVIEW_BLOCKS lines, so any legitimate
+    editor save fits well within these bounds. Rejecting oversized input up front
+    prevents a write-surface CPU/RSS DoS (measured ~20s CPU for 50k lines).
+    """
+    text = str(content or "").replace("\r\n", "\n").replace("\r", "\n")
+    if len(text) > MAX_OFFICE_PREVIEW_CHARS:
+        raise ValueError("DOCX content exceeds the editable size limit")
+    lines = text.split("\n")
+    if len(lines) > MAX_DOCX_PREVIEW_BLOCKS:
+        raise ValueError("DOCX content exceeds the editable paragraph limit")
+
+    if current_bytes is not None:
+        try:
+            document = _load_docx_document()(io.BytesIO(current_bytes))
+        except ImportError:
+            raise
+        except Exception:
+            document = _load_docx_document()()
+    else:
+        document = _load_docx_document()()
     body = document._element.body
     for child in list(body):
         if child.tag != f"{_WORD_NAMESPACE}sectPr":
             body.remove(child)
-    text = str(content or "").replace("\r\n", "\n").replace("\r", "\n")
-    for line in text.split("\n"):
+    for line in lines:
         document.add_paragraph(line)
     buffer = io.BytesIO()
     document.save(buffer)
@@ -602,7 +631,9 @@ def save_office_document(path: str | Path, current_bytes: bytes, content: str) -
     if not current_preview.get("editable"):
         raise ValueError(current_preview.get("edit_blocked_reason") or "DOCX document is not editable")
 
-    saved_bytes = _docx_bytes_from_text(content)
+    # Rebuild from the CURRENT package so styles/docProps/theme survive an
+    # unedited round-trip; the body is still fully replaced and re-verified.
+    saved_bytes = _docx_bytes_from_text(content, current_bytes)
     saved_preview = preview_office_document(path, saved_bytes)
     if not saved_preview.get("editable"):
         raise ValueError(saved_preview.get("edit_blocked_reason") or "Saved DOCX is not editable")

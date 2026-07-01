@@ -15092,6 +15092,10 @@ def _handle_escape_file_read(handler, parsed):
         return bad(handler, _sanitize_error(exc), 404)
     except EscapeAuthorizationExpiredError as exc:
         return bad(handler, _sanitize_error(exc), 403)
+    except ImportError as exc:
+        # Optional Office parsers absent on a lean install — mirror
+        # _handle_file_read: a 503 with the install hint, not a 500 traceback.
+        return bad(handler, _sanitize_error(exc), 503)
     except ValueError as exc:
         return bad(handler, _sanitize_error(exc), 404)
 
