@@ -35,6 +35,8 @@
 
 ### Fixed
 
+- **More complete Simplified Chinese (zhCN) localization.** Previously-unlocalized UI strings now have zhCN translations. Thanks @Loukky. (#5279)
+
 - **A reader who scrolled up no longer gets yanked to the bottom when the SSE stream drops and recovers.** The four SSE-recovery follow-guards now capture explicit follow-intent (sticky-aware: a manually scrolled-up reader counts as unpinned even within 1200px of the bottom) before the terminal-error marker mutates the transcript, so a reconnect re-follows a genuine follower but spares a reader who scrolled up to read history. Thanks @allenliang2022. (#5217)
 
 - **Deep-link composer prefill via `?q=` no longer loses the draft or starts a session early.** Opening the WebUI with a `?q=...` (and related prefill params) pre-fills the composer with that text; the draft now survives a login redirect (params are consumed after auth/profile bootstrap, and the logged-out `?q=` is carried through `next`), and a prefill boot leaves the session uncreated until you actually send — it no longer silently binds a fresh default-workspace session. Thanks @rodboev. (#4969, #4961)
