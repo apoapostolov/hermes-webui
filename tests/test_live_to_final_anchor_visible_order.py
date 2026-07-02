@@ -1058,9 +1058,15 @@ global._renderAnchorSceneRowsIntoWorklog=(group, rows)=>{{
 }};
 global._syncToolCallGroupSummary=()=>{{}};
 
-eval(extractFunc('_anchorSceneTransparentNodeForRow'));
-eval(extractFunc('renderLiveAnchorActivityScene'));
-eval(extractFunc('_renderLiveAnchorActivitySceneTransparent'));
+    eval(extractFunc('_anchorSceneTransparentNodeForRow'));
+    eval(extractFunc('renderLiveAnchorActivityScene'));
+    eval(extractFunc('_transparentLiveRowKey'));
+    eval(extractFunc('_transparentLiveRowsCompatible'));
+    eval(extractFunc('_transparentLiveRowAttributePairs'));
+    eval(extractFunc('_transparentLiveRowInteractiveState'));
+    eval(extractFunc('_rehydrateTransparentLiveRow'));
+    eval(extractFunc('_refreshTransparentLiveRow'));
+    eval(extractFunc('_renderLiveAnchorActivitySceneTransparent'));
 
 const existingTurn=global._createAssistantTurn();
 existingTurn.id='liveAssistantTurn';
