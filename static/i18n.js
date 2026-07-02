@@ -1112,6 +1112,8 @@ const LOCALES = {
     import: 'Import',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Export full session as JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Export as a self-contained HTML page',
     import_session_json_tooltip: 'Import session from JSON',
     clear_conversation_btn_tooltip: 'Clear all messages in this conversation',
     // Settings detail
@@ -2765,6 +2767,8 @@ const LOCALES = {
     import: 'Importa',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Esporta sessione completa come JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Esporta come pagina HTML autonoma',
     import_session_json_tooltip: 'Importa sessione da JSON',
     clear_conversation_btn_tooltip: 'Cancella tutti i messaggi in questa conversazione',
     // Settings detail
@@ -4426,6 +4430,8 @@ const LOCALES = {
     import: 'インポート',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'セッション全体をJSONとしてエクスポート',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: '自己完結型のHTMLページとしてエクスポート',
     import_session_json_tooltip: 'JSONからセッションをインポート',
     clear_conversation_btn_tooltip: 'この会話のすべてのメッセージをクリア',
     // Settings detail
@@ -5740,6 +5746,8 @@ const LOCALES = {
     import: 'Импорт',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Экспортировать сессию как JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Экспортировать как автономную HTML-страницу',
     import_session_json_tooltip: 'Импортировать сессию из JSON',
     clear_conversation_btn_tooltip: 'Очистить все сообщения в этой беседе',
     settings_label_rtl: 'Раскладка чата справа налево',
@@ -7333,6 +7341,8 @@ const LOCALES = {
     import: 'Importar',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Exportar sesión completa como JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Exportar como página HTML independiente',
     import_session_json_tooltip: 'Importar sesión desde JSON',
     clear_conversation_btn_tooltip: 'Borrar todos los mensajes de esta conversación',
     // Settings detail
@@ -8894,6 +8904,8 @@ const LOCALES = {
     import: 'Importieren',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Gesamte Sitzung als JSON exportieren',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Als eigenständige HTML-Seite exportieren',
     import_session_json_tooltip: 'Sitzung aus JSON importieren',
     clear_conversation_btn_tooltip: 'Alle Nachrichten in dieser Konversation löschen',
     // Settings detail
@@ -10532,6 +10544,8 @@ const LOCALES = {
     import: '导入',
     export_session_json: 'JSON',
     export_session_json_tooltip: '将会话完整导出为 JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: '导出为独立的 HTML 网页（双击即可在浏览器打开）',
     import_session_json_tooltip: '从 JSON 导入会话',
     clear_conversation_btn_tooltip: '清空此会话中的所有消息',
     editing: '编辑中',
@@ -12460,6 +12474,8 @@ const LOCALES = {
     import: '匯入',
     export_session_json: 'JSON',
     export_session_json_tooltip: '將對話完整匯出為 JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: '匯出為獨立的 HTML 網頁（雙擊即可在瀏覽器開啟）',
     import_session_json_tooltip: '從 JSON 匯入對話',
     clear_conversation_btn_tooltip: '清空此對話中的所有訊息',
     // Settings detail
@@ -13959,6 +13975,8 @@ const LOCALES = {
     import: 'Importar',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Exportar sessão completa como JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Exportar como página HTML independente',
     import_session_json_tooltip: 'Importar sessão de JSON',
     clear_conversation_btn_tooltip: 'Limpar todas as mensagens nesta conversa',
     // Settings detail
@@ -15513,6 +15531,8 @@ const LOCALES = {
     import: '가져오기',
     export_session_json: 'JSON',
     export_session_json_tooltip: '전체 세션을 JSON으로 내보내기',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: '독립형 HTML 페이지로 내보내기',
     import_session_json_tooltip: 'JSON에서 세션 가져오기',
     clear_conversation_btn_tooltip: '이 대화의 모든 메시지 지우기',
     // Settings detail
@@ -17230,6 +17250,8 @@ const LOCALES = {
     import: 'Importer',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Exporter la session complète en JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Exporter en page HTML autonome',
     import_session_json_tooltip: 'Importer une session depuis JSON',
     clear_conversation_btn_tooltip: 'Effacer tous les messages de cette conversation',
     settings_label_rtl: 'Disposition du chat de droite à gauche',
@@ -18804,6 +18826,8 @@ const LOCALES = {
     import: 'İçe aktarmak',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Tüm oturumu JSON olarak dışa aktar',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Bağımsız bir HTML sayfası olarak dışa aktar',
     import_session_json_tooltip: 'JSON\'dan oturumu içe aktar',
     clear_conversation_btn_tooltip: 'Bu görüşmedeki tüm mesajları temizle',
     // Settings detail
@@ -20513,6 +20537,8 @@ const LOCALES = {
     import: 'Importuj',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Eksportuj pełną sesję jako JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Eksportuj jako samodzielną stronę HTML',
     import_session_json_tooltip: 'Importuj sesję z pliku JSON',
     clear_conversation_btn_tooltip: 'Wyczyść wszystkie wiadomości w tej konwersacji',
     // Settings detail
@@ -22017,6 +22043,8 @@ const LOCALES = {
     import: 'Import',
     export_session_json: 'JSON',
     export_session_json_tooltip: 'Xuất toàn bộ phiên dưới dạng JSON',
+    export_session_html: 'HTML',
+    export_session_html_tooltip: 'Xuất dưới dạng trang HTML độc lập',
     import_session_json_tooltip: 'Nhập phiên từ JSON',
     clear_conversation_btn_tooltip: 'Xóa toàn bộ tin nhắn trong cuộc trò chuyện này',
     // Settings detail

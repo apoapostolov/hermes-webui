@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Export a conversation to a self-contained, theme-matched HTML file.** From a session you can now download a single standalone `.html` of the transcript with the current theme's palette baked in — no external resource loads (fully offline/portable), messages rendered as escaped text (no script/style/raw-HTML injection from conversation content), and remote images neutralized. Thanks @brick-hard. (#4968)
+
 ### Fixed
 
 - **Fixed a blank assistant turn (avatar with no text) that could appear after a dropped stream.** When a turn's live SSE dropped but its in-flight bookkeeping wasn't cleaned up, the empty live-turn shell could be re-attached over the settled transcript on the next self-heal re-render — pinning an avatar-only blank turn on top of the already-saved answer (the message was intact on disk; a reload restored it). The live turn is now preserved across the transcript re-render only when it's genuinely live (an active stream is running, or it already holds real rendered content), so a dead empty shell is dropped and the real answer renders. The mid-stream flicker fix (#3877) is unaffected. Thanks @allenliang2022. (#5390)
