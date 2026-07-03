@@ -2122,6 +2122,20 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
   function snapshotLiveTurn(){
     if(typeof snapshotLiveTurnHtmlForSession==='function') snapshotLiveTurnHtmlForSession(activeSid);
   }
+  // Throttled per-frame variant. snapshotLiveTurnHtmlForSession serializes the
+  // whole (growing) live turn via turn.outerHTML — O(n)/frame -> O(n^2) over a
+  // long answer, and a real GC-pressure source. The snapshot only backs
+  // mid-stream session-switch restore, and the switch path (sessions.js) plus
+  // the stream event boundaries (tool/done) already capture synchronously, so a
+  // coarse trailing snapshot during streaming is sufficient. (#5455 WS2.2)
+  let _snapshotLiveTurnTimer=null;
+  function _throttledSnapshotLiveTurn(){
+    if(_snapshotLiveTurnTimer) return;
+    _snapshotLiveTurnTimer=setTimeout(()=>{_snapshotLiveTurnTimer=null;snapshotLiveTurn();},700);
+  }
+  function _cancelThrottledSnapshotTimer(){
+    if(_snapshotLiveTurnTimer){clearTimeout(_snapshotLiveTurnTimer);_snapshotLiveTurnTimer=null;}
+  }
   // Throttled variant for token-by-token updates. persistInflightState()
   // calls saveInflightState() which does JSON.parse + JSON.stringify + write
   // on the entire inflight map every call. On a fast model at 60 tok/s with
@@ -2167,6 +2181,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
   function _finalizeStreamEndFallback(source){
     _clearStreamEndRecovery();
     if(_persistTimer){clearTimeout(_persistTimer);_persistTimer=null;}
+    _cancelThrottledSnapshotTimer();
     _terminalStateReached=true;
     _streamFinalized=true;
     _cancelAnimationFramePendingStreamRender();
@@ -2178,6 +2193,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     _clearStreamNotificationBackground(activeSid, streamId);
     _flushReasoningToAnchor();
     _scheduleAnchorRegistryCleanup();
+    _clearAnchorProseIncrementalNode();
     _clearApprovalForOwner();
     _clearClarifyForOwner('terminal');
     if(_isActiveSession()){
@@ -3508,6 +3524,58 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     },null);
     return _findAnchorActivityEventByLocalId(localId,'token');
   }
+  // Persistent incremental renderer for anchor-scene live prose rows. The compact
+  // worklog re-renders the whole scene each frame; rendering the growing prose via
+  // renderMd(fullText) every frame is O(n^2) over a long answer. Instead keep a
+  // per-segment smd parser + node (the SAME safe renderer as the main live body)
+  // and feed only the delta, then hand the persistent node back to the ui.js scene
+  // builder. Returns null whenever smd or a stable key is unavailable so the caller
+  // falls back to the full renderMd path — identical structure, just not
+  // incremental. (#5455 WS2.1)
+  const _anchorProseSmdCache = new Map();
+  function _anchorProseIncrementalNode(key, text){
+    if(!window.smd || !key || typeof _safeSmdRenderer!=='function') return null;
+    const value=String(text||'');
+    try{
+      let st=_anchorProseSmdCache.get(key);
+      // Self-heal desyncs (edit/sanitize made the text no longer a pure append):
+      // rebuild the parser+node from scratch, mirroring _smdWrite's guard.
+      if(st && st.writtenText && !value.startsWith(st.writtenText)) st=null;
+      if(!st){
+        const node=document.createElement('div');
+        node.className='assistant-segment';
+        node.setAttribute('data-anchor-scene-prose','1');
+        const body=document.createElement('div');
+        body.className='msg-body';
+        node.appendChild(body);
+        const baseRenderer=_safeSmdRenderer(body);
+        const renderer=_smdRendererWithoutUnderscoreEmphasis(baseRenderer);
+        st={node,parser:window.smd.parser(renderer),writtenText:''};
+        _anchorProseSmdCache.set(key,st);
+        // Bound memory across turns: keys embed the stream id, so stale entries
+        // from finished streams age out here.
+        if(_anchorProseSmdCache.size>32){
+          const oldest=_anchorProseSmdCache.keys().next().value;
+          if(oldest!==key) _anchorProseSmdCache.delete(oldest);
+        }
+      }
+      const delta=value.slice(st.writtenText.length);
+      if(delta){
+        window.smd.parser_write(st.parser,delta);
+        st.writtenText=value;
+      }
+      st.node.dataset.rawText=value;
+      return st.node;
+    }catch(_){
+      _anchorProseSmdCache.delete(key);
+      return null;
+    }
+  }
+  window.__anchorProseIncrementalNode=_anchorProseIncrementalNode;
+  function _clearAnchorProseIncrementalNode(){
+    if(typeof window!=='undefined'&&window.__anchorProseIncrementalNode===_anchorProseIncrementalNode) window.__anchorProseIncrementalNode=null;
+    _anchorProseSmdCache.clear();
+  }
   function _anchorHasReasoningEvents(){
     const events=_anchorActivityEvents();
     return !!(events&&events.some(event=>event&&event.source_event_type==='reasoning'));
@@ -3741,8 +3809,10 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     // Also handles DSML-prefixed variants from DeepSeek/Bedrock, including
     // spacing variants like "<｜DSML |function_calls" and truncated prefixes.
     if(!s) return s;
-    const lo=String(s).toLowerCase();
-    if(lo.indexOf('function_calls')===-1 && lo.indexOf('dsml')===-1) return s;
+    // Case-insensitive presence check without allocating a full lowercased copy
+    // of the (growing) text on every call — cuts per-token/per-frame GC pressure.
+    // Equivalent to the previous toLowerCase()+indexOf gate. (#5455 WS2.3)
+    if(!/function_calls|dsml/i.test(String(s))) return s;
     // Support both plain <function_calls> and DSML-prefixed variants.
     s=s.replace(/<(?:\s*｜\s*DSML\s*[｜|]\s*)?function_calls>[\s\S]*?<\/(?:\s*｜\s*DSML\s*[｜|]\s*)?function_calls>/gi,'');
     // Also remove truncated opening tags (missing closing ">" at stream tail).
@@ -4591,7 +4661,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
         if(typeof _syncLiveWorklogReasonsForAnchor==='function') _syncLiveWorklogReasonsForAnchor(assistantRow, displayText);
       }
       scrollIfPinned();
-      snapshotLiveTurn();
+      _throttledSnapshotLiveTurn();
     };
     const frameIntervalMs=_shouldUseStreamFade()?33:66;
     if(sinceLastMs>=frameIntervalMs){
@@ -4647,10 +4717,21 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       syncInflightAssistantMessage();
       if(!S.session||S.session.session_id!==activeSid) return;
       _completeAutomaticCompressionOnLiveProgress(activeSid);
-      const parsed=_parseStreamState();
       if(_freshSegment) appendThinking('', _liveThinkingPlacement());
-      if(String((parsed&&parsed.displayText)||'').trim()||assistantRow) ensureAssistantRow();
-      _scheduleRender(parsed);
+      // Once the assistant row exists its creation gate is already satisfied, and
+      // the throttled _doRender re-parses once per frame anyway — so the per-token
+      // full-text parse here is pure waste (O(n)/token -> O(n^2) over the answer).
+      // Still call ensureAssistantRow() every token exactly as before (cheap; it
+      // also starts a new segment on a post-tool _freshSegment). Only the parse is
+      // skipped, and only once the row exists. (#5455 WS2.3)
+      if(assistantRow){
+        ensureAssistantRow();
+        _scheduleRender();
+      }else{
+        const parsed=_parseStreamState();
+        if(String((parsed&&parsed.displayText)||'').trim()) ensureAssistantRow();
+        _scheduleRender(parsed);
+      }
     });
 
     source.addEventListener('interim_assistant',e=>{
@@ -5012,6 +5093,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       _streamFinalized=true;
       _terminalStateReached=true;
       if(_persistTimer){clearTimeout(_persistTimer);_persistTimer=null;}
+      _cancelThrottledSnapshotTimer();
       const _doneData=JSON.parse(e.data);
       const _doneEvent=e;
       const _finishDone=()=>{
@@ -5043,6 +5125,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
           created_at:d.created_at||null,
         },_doneEvent);
         _scheduleAnchorRegistryCleanup();
+        _clearAnchorProseIncrementalNode();
         const isActiveSession=_isSessionCurrentPane(activeSid);
         const isSessionViewed=_isSessionActivelyViewed(activeSid);
         const completedSession=d.session||{session_id:activeSid};
@@ -5427,6 +5510,8 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       _clearStreamEndRecovery();
       _terminalStateReached=true;
       if(_persistTimer){clearTimeout(_persistTimer);_persistTimer=null;}
+      _cancelThrottledSnapshotTimer();
+      _clearAnchorProseIncrementalNode();
       _streamFinalized=true;
       _cancelAnimationFramePendingStreamRender();
       _streamFadeCleanupReduceMotionListener();
@@ -5628,6 +5713,8 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       _clearStreamEndRecovery();
       _terminalStateReached=true;
       if(_persistTimer){clearTimeout(_persistTimer);_persistTimer=null;}
+      _cancelThrottledSnapshotTimer();
+      _clearAnchorProseIncrementalNode();
       _streamFinalized=true;
       _cancelAnimationFramePendingStreamRender();
       _streamFadeCleanupReduceMotionListener();
@@ -5778,6 +5865,8 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       if(!session) return returnStatus?'missing':false;
       if(session.active_stream_id||session.pending_user_message) return returnStatus?'active':false;
       if(_persistTimer){clearTimeout(_persistTimer);_persistTimer=null;}
+      _cancelThrottledSnapshotTimer();
+      _clearAnchorProseIncrementalNode();
       _streamFinalized=true;
       _cancelAnimationFramePendingStreamRender();
       _streamFadeCleanupReduceMotionListener();
@@ -5872,6 +5961,8 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     // Opus review Q1: mirror done/apperror/cancel finalization so any pending rAF
     // cannot fire after renderMessages() has settled the DOM with the error message.
     if(_persistTimer){clearTimeout(_persistTimer);_persistTimer=null;}
+    _cancelThrottledSnapshotTimer();
+    _clearAnchorProseIncrementalNode();
     _streamFinalized=true;
     _cancelAnimationFramePendingStreamRender();
     _streamFadeCleanupReduceMotionListener();
