@@ -20282,6 +20282,7 @@ def _handle_chat_sync(handler, body):
             )
             from api.streaming import (
                 _WEBUI_PROGRESS_PROMPT,
+                _assign_stable_message_ids,
                 _dedupe_replayed_context_messages,
                 _merge_display_messages_after_agent_result,
                 _restore_display_reasoning_metadata,
@@ -20345,6 +20346,11 @@ def _handle_chat_sync(handler, body):
         _next_context_messages = _restore_reasoning_metadata(
             _previous_context_messages,
             _result_messages,
+        )
+        # Mint ids on the shared result rows BEFORE dedupe deep-copies any
+        # stale-user boundary row, so both arrays share the id (#5564).
+        _assign_stable_message_ids(
+            _result_messages, _previous_messages, _previous_context_messages
         )
         _next_context_messages = _dedupe_replayed_context_messages(
             _previous_context_messages,
