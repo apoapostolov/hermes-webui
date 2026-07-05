@@ -210,7 +210,7 @@ const before = {
   noteClass: note.className,
   retryClass: retry.className,
   text: retry.textContent,
-  disabled: retry.disabled,
+  disabled: (retry.getAttribute('aria-disabled') === 'true'),
   ariaBusy: retry.getAttribute('aria-busy'),
   phases: [...global._sessionListFromCacheCalls],
   renderCalls: [...global.renderSessionListCalls],
@@ -225,7 +225,7 @@ console.log(JSON.stringify({
     noteClass: pendingNote.className,
     retryClass: pendingRetry.className,
     text: pendingRetry.textContent,
-    disabled: pendingRetry.disabled,
+    disabled: (pendingRetry.getAttribute('aria-disabled') === 'true'),
     ariaBusy: pendingRetry.getAttribute('aria-busy'),
     phases: [...global._sessionListFromCacheCalls],
     renderCalls: [...global.renderSessionListCalls],
@@ -248,7 +248,7 @@ console.log(JSON.stringify({
     assert body["pending"] == {
         "noteClass": "session-list-error session-empty-note",
         "retryClass": "session-list-error-retry",
-        "text": "Retrying...",
+        "text": "Retrying…",
         "disabled": True,
         "ariaBusy": "true",
         "phases": ["idle", "retrying"],
@@ -273,7 +273,7 @@ retry.onclick({ stopPropagation() {} });
 console.log(JSON.stringify({
   sameButton: retry === findButton(list.children[0]),
   text: retry.textContent,
-  disabled: retry.disabled,
+  disabled: (retry.getAttribute('aria-disabled') === 'true'),
   ariaBusy: retry.getAttribute('aria-busy'),
   onclick: retry.onclick === null,
   phases: [...global._sessionListFromCacheCalls],
@@ -285,7 +285,7 @@ console.log(JSON.stringify({
 
     assert body == {
         "sameButton": True,
-        "text": "Retrying...",
+        "text": "Retrying…",
         "disabled": True,
         "ariaBusy": "true",
         "onclick": True,
@@ -310,7 +310,7 @@ global.renderSessionListFromCache = () => {
 retry.onclick({ stopPropagation() {} });
 const pending = {
   text: retry.textContent,
-  disabled: retry.disabled,
+  disabled: (retry.getAttribute('aria-disabled') === 'true'),
   ariaBusy: retry.getAttribute('aria-busy'),
   onclick: retry.onclick === null,
 };
@@ -321,7 +321,7 @@ retryFlow.resolve();
     pending,
     settled: {
       text: retry.textContent,
-      disabled: retry.disabled,
+      disabled: (retry.getAttribute('aria-disabled') === 'true'),
       ariaBusy: retry.getAttribute('aria-busy'),
       onclick: typeof retry.onclick,
     },
@@ -338,7 +338,7 @@ retryFlow.resolve();
     body = _run_node(script)
 
     assert body["pending"] == {
-        "text": "Retrying...",
+        "text": "Retrying…",
         "disabled": True,
         "ariaBusy": "true",
         "onclick": True,
@@ -370,7 +370,7 @@ global.renderSessionListFromCache = () => {
 retry.onclick({ stopPropagation() {} });
 const pending = {
   text: retry.textContent,
-  disabled: retry.disabled,
+  disabled: (retry.getAttribute('aria-disabled') === 'true'),
   ariaBusy: retry.getAttribute('aria-busy'),
   onclick: retry.onclick === null,
 };
@@ -381,7 +381,7 @@ retryFlow.reject(new Error('boom'));
     pending,
     settled: {
       text: retry.textContent,
-      disabled: retry.disabled,
+      disabled: (retry.getAttribute('aria-disabled') === 'true'),
       ariaBusy: retry.getAttribute('aria-busy'),
       onclick: typeof retry.onclick,
     },
@@ -398,7 +398,7 @@ retryFlow.reject(new Error('boom'));
     body = _run_node(script)
 
     assert body["pending"] == {
-        "text": "Retrying...",
+        "text": "Retrying…",
         "disabled": True,
         "ariaBusy": "true",
         "onclick": True,
@@ -414,6 +414,10 @@ retryFlow.reject(new Error('boom'));
     assert body["error"] == {
         "message": "Could not load conversations.",
         "detail": "boom",
+        # a11y (#5505 gate): a retry that fails while the settlement repaint is
+        # blocked leaves the flag set (the idle note that would consume it never
+        # rebuilt), so the fresh Retry button reclaims keyboard focus.
+        "_retryFailedFocus": True,
     }
 
 
@@ -430,7 +434,7 @@ const retry = findButton(note);
 retry.onclick({ stopPropagation() {} });
 const pending = {
   text: findButton(list.children[0]).textContent,
-  disabled: findButton(list.children[0]).disabled,
+  disabled: (findButton(list.children[0]).getAttribute('aria-disabled') === 'true'),
   ariaBusy: findButton(list.children[0]).getAttribute('aria-busy'),
 };
 retryFlow.resolve();
@@ -456,7 +460,7 @@ retryFlow.resolve();
     body = _run_node(script)
 
     assert body["pending"] == {
-        "text": "Retrying...",
+        "text": "Retrying…",
         "disabled": True,
         "ariaBusy": "true",
     }
@@ -479,7 +483,7 @@ const retry = findButton(note);
 retry.onclick({ stopPropagation() {} });
 const pending = {
   text: findButton(list.children[0]).textContent,
-  disabled: findButton(list.children[0]).disabled,
+  disabled: (findButton(list.children[0]).getAttribute('aria-disabled') === 'true'),
   ariaBusy: findButton(list.children[0]).getAttribute('aria-busy'),
 };
 retryFlow.reject(new Error('boom'));
@@ -498,7 +502,7 @@ retryFlow.reject(new Error('boom'));
     },
     retryAfterFailure: {
       text: retryAfterFailure.textContent,
-      disabled: retryAfterFailure.disabled,
+      disabled: (retryAfterFailure.getAttribute('aria-disabled') === 'true'),
       ariaBusy: retryAfterFailure.getAttribute('aria-busy'),
     },
     rows: list.children.map((child) => ({
@@ -515,7 +519,7 @@ retryFlow.reject(new Error('boom'));
     body = _run_node(script)
 
     assert body["pending"] == {
-        "text": "Retrying...",
+        "text": "Retrying…",
         "disabled": True,
         "ariaBusy": "true",
     }
@@ -545,6 +549,8 @@ def test_session_list_error_css_and_retry_options_are_preserved():
     assert ".session-list-error-retry{" in css
     assert ".session-list-error-retry:focus-visible{" in css
     assert ".session-list-error-retry:disabled,.session-list-error-retry[aria-busy=\"true\"]" in css
+    # a11y (#5505 gate): the pending state is styled via aria-disabled too.
+    assert "[aria-disabled=\"true\"]" in css
     assert "opacity:1" in css
     assert "const sessionRequestOpts={" in src
     assert "retries:1," in src
@@ -554,3 +560,22 @@ def test_session_list_error_css_and_retry_options_are_preserved():
     assert src.index("retryStatuses:[502,503,504],") < boot_gate
     assert "sessionRequestOpts.timeoutMs=_SESSION_LIST_BOOT_TIMEOUT_MS;" in src
     assert "sessionRequestOpts.retryTimeouts=true;" in src
+
+
+def test_session_list_error_note_has_live_region_and_pending_uses_aria_disabled():
+    """a11y (#5505 gate): the error note is a polite live region (retry
+    failure/restore is announced), and the pending Retry uses aria-disabled
+    (not the disabled property) so it can retain keyboard focus."""
+    src, _css = _load_source()
+    note_fn = src[src.index("function _renderSessionListLoadErrorNote"):]
+    note_fn = note_fn[: note_fn.index("\nfunction ", 1)] if "\nfunction " in note_fn[1:] else note_fn
+    assert "role" in note_fn and "status" in note_fn
+    assert "aria-live" in note_fn and "polite" in note_fn
+    # pending uses aria-disabled attribute, not the disabled property
+    assert "setAttribute('aria-disabled','true')" in note_fn
+    assert "retry.disabled=true" not in note_fn
+    # true ellipsis, not three dots
+    assert "Retrying…" in note_fn
+    assert "Retrying..." not in note_fn
+    # keyboard focus restored on a failed retry
+    assert "_retryFailedFocus" in note_fn

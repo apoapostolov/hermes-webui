@@ -4663,6 +4663,10 @@ function _mergeRenderSessionListOptions(prev, next){
 function _showSessionListLoadError(error){
   console.warn('renderSessionList',error);
   const isTimeout=Boolean(error&&(error.timeout===true||error.name==='TimeoutError'));
+  // If this error is landing while a retry was in flight, flag the fresh Retry
+  // button (rebuilt by the repaint) to reclaim keyboard focus so keyboard users
+  // aren't dropped to <body> on a failed retry.
+  const wasRetrying=Boolean(_sessionListLoadError&&_sessionListLoadError.retrying);
   _sessionListLoadError={
     message:isTimeout
       ? 'Session list is taking longer than expected.'
@@ -4670,6 +4674,7 @@ function _showSessionListLoadError(error){
     detail:isTimeout
       ? 'The backend may still be scanning a very large session history.'
       : String(error&&error.message?error.message:''),
+    _retryFailedFocus:wasRetrying,
   };
 }
 
@@ -4677,6 +4682,10 @@ function _renderSessionListLoadErrorNote(){
   if(!_sessionListLoadError) return null;
   const note=document.createElement('div');
   note.className='session-list-error session-empty-note';
+  // a11y: announce load-error / retry-failure transitions to screen readers
+  // (the note is re-rendered on both the pending click and the failure repaint).
+  note.setAttribute('role','status');
+  note.setAttribute('aria-live','polite');
   const title=document.createElement('div');
   title.textContent=_sessionListLoadError.message||'Could not load conversations.';
   note.appendChild(title);
@@ -4690,9 +4699,12 @@ function _renderSessionListLoadErrorNote(){
   retry.type='button';
   retry.className='session-list-error-retry';
   const retrying=Boolean(_sessionListLoadError.retrying);
+  // Use aria-disabled (not the disabled property) for the pending state so the
+  // button can keep keyboard focus across the sidebar rebuild; the click/keydown
+  // guards below make it inert while busy.
   const setPending=()=>{
-    retry.textContent='Retrying...';
-    retry.disabled=true;
+    retry.textContent='Retrying…';
+    retry.setAttribute('aria-disabled','true');
     retry.setAttribute('aria-busy','true');
     retry.onclick=null;
   };
@@ -4700,13 +4712,14 @@ function _renderSessionListLoadErrorNote(){
     retry.onclick=(e)=>{
       e.stopPropagation();
       if(!_sessionListLoadError||_sessionListLoadError.retrying) return;
+      if(retry.getAttribute('aria-disabled')==='true') return;
       setPending();
       _sessionListLoadError={..._sessionListLoadError,retrying:true};
       renderSessionListFromCache();
       void renderSessionList({deferWhileInteracting:false}).finally(()=>{
         if(!retry.parentNode||(_sessionListLoadError&&_sessionListLoadError.retrying)) return;
         retry.textContent='Retry';
-        retry.disabled=false;
+        retry.removeAttribute('aria-disabled');
         retry.removeAttribute('aria-busy');
         bindRetry();
       });
@@ -4716,8 +4729,15 @@ function _renderSessionListLoadErrorNote(){
     setPending();
   }else{
     retry.textContent='Retry';
-    retry.disabled=false;
+    retry.removeAttribute('aria-disabled');
     bindRetry();
+    // On a failure repaint that replaces a pending button, restore keyboard
+    // focus to the fresh Retry button so keyboard users aren't dropped to body.
+    if(_sessionListLoadError._retryFailedFocus){
+      delete _sessionListLoadError._retryFailedFocus;
+      const _refocus=()=>{ try{ if(typeof retry.focus==='function') retry.focus(); }catch(_e){} };
+      if(typeof requestAnimationFrame==='function') requestAnimationFrame(_refocus); else _refocus();
+    }
   }
   note.appendChild(retry);
   return note;
