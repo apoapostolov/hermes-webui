@@ -84,8 +84,8 @@ def test_desktop_side_rails_can_shrink_to_resize_minima():
         _rule_body(desktop, ".layout.workspace-panel-collapsed .rightpanel")
     )
 
-    assert "SIDEBAR_MIN=180" in BOOT_JS
-    assert "PANEL_MIN=180" in BOOT_JS
+    assert re.search(r"\bSIDEBAR_MIN\s*=\s*180\b", BOOT_JS)
+    assert re.search(r"\bPANEL_MIN\s*=\s*180\b", BOOT_JS)
     assert sidebar.get("flex-shrink") == "1"
     assert sidebar.get("min-width") == "180px"
     assert rightpanel.get("flex-shrink") == "1"
