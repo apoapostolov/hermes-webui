@@ -5,6 +5,7 @@
 
 ### Fixed
 
+- **Profile list no longer serves stale rows after a change.** The session-load perf pass (v0.51.908) bumped the profile-list cache TTL to 60s, but profile-row mutations (default model / providers / skills / gateway config) don't invalidate that cache, so a changed profile could show stale details for up to a minute. Reverted the TTL to 4s — frequent enough that mutation-to-refresh staleness is negligible, while rapid dropdown re-opens stay cheap. Thanks @Kopamed. (#5696)
 - **Faster session loads on long conversations.** Opening a session with thousands of messages was taking multiple seconds because `Session.compact()` re-walked the whole message list on every response (an O(N) user-message count plus a full reverse scan for the last-message timestamp), and the slow-request watchdog didn't cover the `/api/session` path. The user-count and last-message-timestamp lookups are now bounded (a tail-window scan with an exact full-scan fallback), and slow-request instrumentation covers the session-load path so future regressions are caught. Multi-second loads on large sessions drop to sub-second. Thanks @Kopamed. (#5696, #5455)
 
 ### Internal
