@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Internal
+
+- **Fixed the last 2 chronic local full-suite test-isolation flakes.** `test_tls_support::test_tls_startup_failure_fallback_to_http` and `test_v050259_sessiondb_fd_leak::test_session_db_close_is_idempotent` failed only in a full local suite run (they skip on CI, where the agent package isn't co-located). Root cause was the same "simulate agent package unavailable" antipattern shipped-fixed for the profile cluster: `test_custom_provider_prefix_collisions` clobbered `sys.modules['agent']` at collection time (never restored), and several helpers emptied real package `__path__` lists in place. Fixed at the source — the collection-time shim is now guarded on `importlib.util.find_spec` (only installed when the real package is genuinely absent), the in-place `__path__` mutations use `monkeypatch.setattr(..., raising=False)`, and `test_issue1574`'s fake-agent helper restores the env/`sys.path` it mutates. Full local suite now 0 failed (was 2); `test_title_aux_routing` unaffected. Test-only.
+
 ### Fixed
 
 - **Profile list no longer serves stale rows after a change.** The session-load perf pass (v0.51.908) bumped the profile-list cache TTL to 60s, but profile-row mutations (default model / providers / skills / gateway config) don't invalidate that cache, so a changed profile could show stale details for up to a minute. Reverted the TTL to 4s — frequent enough that mutation-to-refresh staleness is negligible, while rapid dropdown re-opens stay cheap. Thanks @Kopamed. (#5696)
