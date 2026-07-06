@@ -5,6 +5,8 @@
 
 ### Fixed
 
+- **The workspace file tree no longer jumps to the top when you expand a folder.** Every folder expand/collapse, breadcrumb navigation, refresh, and hidden-files toggle re-rendered the tree by wiping its container, which collapsed its height and made the browser reset the scroll position to the top — teleporting you away from where you were in a long tree. The scroll position is now captured before the re-render and restored after. Reported by @claw-io. (#5664, #5657)
+
 - **Self-update recovers when a `.git/index.lock` is blocking it.** If "Update Now" failed because a stale `.git/index.lock` was present (a previous git process left it behind), the WebUI gave no in-UI way out — you were stuck on an un-updatable install. The update banner now detects that specific failure, shows the exact `rm -f …/.git/index.lock` command to run on the host, and offers a "Retry update" button that re-runs the normal update once the lock is gone. The server never deletes anything under `.git` itself (fail-closed — git's lock can't be safely auto-cleared without racing), so this is purely a detect-and-guide recovery. Thanks @b3nw. (#5688, #5687)
 
 ### Internal
