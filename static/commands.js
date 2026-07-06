@@ -1431,8 +1431,22 @@ function _steerOwnerIsCurrent(ownerSid){
   return !!(ownerSid&&typeof S!=='undefined'&&S.session&&S.session.session_id===ownerSid);
 }
 
+function _steerSetComposerStatusForOwner(ownerSid,text){
+  if(_steerOwnerIsCurrent(ownerSid)&&typeof setComposerStatus==='function')setComposerStatus(text);
+}
+
 function _steerRestoreText(originalMsg, explicitSteer){
   return explicitSteer?`/steer ${originalMsg}`:originalMsg;
+}
+
+function _steerIndicatorText(originalMsg, filesSnapshot){
+  const text=String(originalMsg||'').trim();
+  if(text)return text;
+  const names=(Array.isArray(filesSnapshot)?filesSnapshot:[])
+    .map(f=>f&&(f.name||f.filename||f.path||''))
+    .map(v=>String(v||'').trim())
+    .filter(Boolean);
+  return names.length?`Attached files: ${names.join(', ')}`:'Attached files';
 }
 
 async function _steerPersistDraftForOwner(ownerSid, originalMsg, explicitSteer, filesSnapshot){
@@ -1463,14 +1477,14 @@ async function _steerTextWithPendingFiles(msg, ownerSid, filesSnapshot){
   if(_steerUploadCache&&_steerUploadCache.sid===ownerSid&&_steerUploadCache.sig===sig&&Array.isArray(_steerUploadCache.paths)&&_steerUploadCache.paths.length){
     paths=_steerUploadCache.paths;
   }else{
-    if(typeof setComposerStatus==='function')setComposerStatus(t('uploading')||'Uploading…');
+    _steerSetComposerStatusForOwner(ownerSid,t('uploading')||'Uploading…');
     let uploaded=[];
     try{
       // Keep File objects staged until /api/chat/steer confirms acceptance. If
       // steer falls back, the draft and chips stay available for Queue/Interrupt.
       uploaded=await uploadPendingFiles({clearPending:false,sessionId:ownerSid,files:pendingFiles});
     }finally{
-      if(typeof setComposerStatus==='function')setComposerStatus('');
+      _steerSetComposerStatusForOwner(ownerSid,'');
     }
     paths=_steerUploadedAttachmentPaths(uploaded);
     if(paths.length) _steerUploadCache={sid:ownerSid,sig,paths};
@@ -1500,7 +1514,7 @@ async function _trySteer(msg, explicitSteer){
     }else{
       await _steerPersistDraftForOwner(ownerSid,originalMsg,explicitSteer,pendingFilesSnapshot);
     }
-    if(typeof setComposerStatus==='function')setComposerStatus('');
+    _steerSetComposerStatusForOwner(ownerSid,'');
     showToast(`${t('upload_failed')}${e&&e.message?e.message:e}`,3500);
     return false;
   }
@@ -1546,7 +1560,7 @@ async function _trySteer(msg, explicitSteer){
         const _remaining=S.pendingFiles.filter(f=>!_delivered.has(f));
         if(_remaining.length!==S.pendingFiles.length){S.pendingFiles=_remaining;if(typeof renderTray==='function')renderTray();}
       }
-      _showSteerIndicator(steerText);
+      _showSteerIndicator(_steerIndicatorText(originalMsg,pendingFilesSnapshot));
     }
     showToast(t('cmd_steer_delivered'),2500);
     return true;

@@ -3,6 +3,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mobile drawer shows the dashboard link and extension nav-actions again.** On narrow screens (≤800px) the sidebar drawer was hiding the dashboard link and any extension-added nav-action icons, so you couldn't reach them on mobile. They now mirror into the drawer and stay in sync as they appear/disappear. Thanks @rodboev. (#5605, #5583)
+- **Inline Mermaid diagrams no longer collapse to zero height on mobile.** An inline diagram could render invisibly on narrow screens before its SVG laid out; it now has a min-height on mobile (scoped so the lightbox and desktop are unaffected). Thanks @nankingjing. (#5560, #5525)
+- **Steer file uploads no longer leak their progress across sessions.** When you steer a live turn with an attachment and switch to another conversation mid-upload, the progress bar and composer status now stay scoped to the session that owns the upload (and the steer indicator shows your original text). Thanks @ruizanthony. (#5630)
+- **The chat message header scales with your text-size preference.** The model name, icon, TPS badge, and timestamp in the assistant header were ignoring the font-size setting, so they looked disproportionately small at large/xlarge text; they now scale with the body. Thanks @nankingjing. (#5633)
+- **The three-panel desktop layout keeps the conversation readable when you resize.** With the sidebar and workspace panel both open, shrinking the window used to crush the center conversation; it now has a readable floor and the side rails yield first (desktop ≥901px; the workspace panel still fully collapses when closed). Thanks @rodboev. (#5594, #5545)
+
 ### Changed
 
 - **The busy-time send behavior is now called "Default message mode," and new installs default to Steer.** The Settings → Preferences control formerly labeled "Busy input mode" is renamed to "Default message mode," and a fresh install now defaults to **Steer** (inject a mid-turn correction without interrupting) instead of Queue. Your existing choice is preserved — if you ever saved settings, your current mode (Queue/Interrupt/Steer) is migrated as-is and unchanged; only never-configured installs pick up the new Steer default. The saved preference still survives a reload or a brief server outage (the localStorage mirror from the previous release is intact). Thanks @rodboev. (#5162, #5145)
