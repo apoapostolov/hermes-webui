@@ -2570,7 +2570,24 @@ function _modelStateForSelect(sel, modelId){
   if(!value) return {model:'',model_provider:null};
   const explicitProvider=_providerFromModelValue(value);
   if(explicitProvider) return {model:value,model_provider:explicitProvider};
-  const opt=sel&&sel.selectedOptions&&sel.selectedOptions[0];
+  // Resolve the provider from the option whose VALUE matches the requested
+  // model — never blindly from sel.selectedOptions[0] (#5567). During a profile
+  // /tab switch or a model-list rebuild the dropdown transiently still has the
+  // PREVIOUS profile's default option selected (e.g. an ollama model), so reading
+  // selectedOptions[0] would stamp that foreign provider onto a model it doesn't
+  // own — which is then persisted into the session's model_provider and re-sent
+  // on every turn, bricking it with a "Provider 'X'…no API key" error for a
+  // provider the session never used.
+  let opt=null;
+  const selected=sel&&sel.selectedOptions&&sel.selectedOptions[0];
+  // Prefer the currently-selected option ONLY when it actually is the requested
+  // model — this preserves the user's exact pick in the same-value/different-
+  // provider collision case (two providers offering the same model id).
+  if(selected&&String(selected.value||'')===value){
+    opt=selected;
+  }else if(sel&&sel.options){
+    opt=Array.from(sel.options).find(o=>String(o.value||'')===value)||null;
+  }
   const provider=String(_getOptionProviderId(opt)||'').trim();
   return {model:value,model_provider:(provider&&provider!=='default')?provider:null};
 }
