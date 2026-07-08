@@ -9152,9 +9152,10 @@ async function loadSettingsPanel(){
         // update banner still gates the actual apply behind "Update Now".
         _schedulePreferencesAutosave();
         if(typeof checkUpdatesNow==='function'){
-          // Small delay so the autosave PUT lands before the forced re-check
-          // reads the new channel server-side.
-          setTimeout(function(){try{checkUpdatesNow();}catch(e){}},400);
+          // Pass the just-selected channel EXPLICITLY so the re-check can't race
+          // the debounced autosave PUT and answer for the previous channel.
+          const _picked=updateChannelSel.value;
+          setTimeout(function(){try{checkUpdatesNow(_picked);}catch(e){}},400);
         }
         if(typeof _syncUpdateChannelBadge==='function') _syncUpdateChannelBadge(updateChannelSel.value);
       },{once:false});
@@ -11748,7 +11749,7 @@ function _syncUpdateChannelBadge(channel){
   }catch(e){}
 }
 
-async function checkUpdatesNow(){
+async function checkUpdatesNow(channelOverride){
   const btn=$('btnCheckUpdatesNow');
   const label=$('checkUpdatesLabel');
   const spinner=$('checkUpdatesSpinner');
@@ -11759,8 +11760,15 @@ async function checkUpdatesNow(){
   if(spinner) spinner.style.display='';
   if(label) label.textContent=t('settings_checking');
   if(status) status.textContent='';
+
   try {
-    const data=await api('/api/updates/check',{method:'POST',body:JSON.stringify({force:true}),timeoutMs:60000});
+    // Pass the channel explicitly when the caller has one (e.g. the dropdown
+    // just switched) so the check can't race the debounced settings autosave
+    // and answer for the previous channel. Omit otherwise → server uses the
+    // saved setting. (Fable UX gate.)
+    const _checkBody={force:true};
+    if(channelOverride==='stable'||channelOverride==='experimental') _checkBody.channel=channelOverride;
+    const data=await api('/api/updates/check',{method:'POST',body:JSON.stringify(_checkBody),timeoutMs:60000});
     if(data.disabled){
       if(status){status.textContent=t('settings_updates_disabled');status.style.color='var(--muted)';}
     } else {

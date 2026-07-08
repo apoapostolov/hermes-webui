@@ -5119,7 +5119,7 @@ main.main > #mainPlugin{display:none;}
   .settings-section-head{flex-direction:column;align-items:flex-start;gap:8px;}
   .settings-section-title{font-size:16px;}
   #checkUpdatesBlock{flex-wrap:wrap;row-gap:6px;width:100%;}
-  .settings-version-badge{white-space:nowrap;}
+  .settings-version-badge{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;}
   .hermes-action-grid{grid-template-columns:1fr;}
   #mainSettings .settings-field{padding:14px;}
   #mainSettings .chat-activity-mode-toggle{grid-template-columns:1fr;}

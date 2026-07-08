@@ -13082,7 +13082,15 @@ def handle_post(handler, parsed) -> bool:
             return j(handler, {"disabled": True})
         include_agent_updates = not bool(settings.get("ignore_agent_updates"))
         force = bool(body.get("force", False))
-        channel = settings.get("update_channel")
+        # Allow the client to pass the channel explicitly in the POST body. This
+        # avoids a race on channel switch: the Settings dropdown re-checks
+        # immediately, but its autosave PUT (debounced) may not have landed
+        # server-side yet, so reading the saved setting here could answer for the
+        # OLD channel. An explicit body channel (validated against the enum) wins;
+        # otherwise fall back to the saved setting. (Fable UX gate.)
+        channel = body.get("channel") if isinstance(body, dict) else None
+        if channel not in ("stable", "experimental"):
+            channel = settings.get("update_channel")
         from api.updates import check_for_updates
 
         return j(handler, check_for_updates(force=force, include_agent=include_agent_updates, channel=channel))
