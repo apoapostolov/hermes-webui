@@ -28,7 +28,7 @@ import time
 import uuid
 import http.client
 import socket as _socket
-from collections import defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 from contextlib import closing
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlsplit
@@ -1042,6 +1042,7 @@ def _skill_view_from_active_dir(name: str) -> dict:
 # Trivial; many production SSE deployments run 5-15s heartbeats specifically
 # to handle proxies and mobile NAT.
 _SSE_HEARTBEAT_INTERVAL_SECONDS = 5
+_SESSION_SSE_SENT_EVENT_ID_LIMIT = 4096
 
 
 def _normalize_messaging_source(raw_source) -> str:
@@ -9254,8 +9255,11 @@ from api.streaming import (
 )
 from api.gateway_chat import _run_gateway_chat_streaming, webui_gateway_chat_enabled
 from api.run_journal import (
+    _parse_run_journal_event_id as _shared_parse_run_journal_event_id,
     find_run_summary,
     read_run_events,
+    read_session_run_events,
+    session_journal_fingerprint,
     stale_interrupted_event,
 )
 from api.todo_state import attach_todo_state
@@ -12900,6 +12904,10 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == '/api/sessions/events':
         return _handle_session_events_stream(handler)
 
+    session_events_session_id = _session_events_path_session_id(parsed.path)
+    if session_events_session_id is not None:
+        return _handle_session_sse_stream_for_session(handler, parsed, session_events_session_id)
+
     if parsed.path == "/api/media":
         return _handle_media(handler, parsed)
 
@@ -16399,19 +16407,46 @@ def _sse_with_id(handler, event, data, event_id=None):
     _sse(handler, event, data)
 
 
-def _parse_run_journal_event_id(raw: str | None) -> tuple[str | None, int | None]:
+def _session_events_path_session_id(path: str | None) -> str | None:
+    path = str(path or "")
+    parts = path.strip("/").split("/")
+    if len(parts) != 4:
+        return None
+    if parts[0] != "api" or parts[1] != "sessions" or parts[3] != "events":
+        return None
+    sid = str(parts[2] or "").strip()
+    return sid or None
+
+
+def _session_events_resume_event_id(handler, parsed) -> str | None:
+    headers = getattr(handler, "headers", None)
+    raw = None
+    if headers is not None:
+        try:
+            raw = headers.get("Last-Event-ID")
+        except Exception:
+            raw = None
     raw = str(raw or "").strip()
-    if not raw:
-        return None, None
-    if ":" in raw:
-        run_id, tail = raw.rsplit(":", 1)
-    else:
-        run_id, tail = None, raw
+    if raw:
+        return raw
+    qs = parse_qs(getattr(parsed, "query", "") or "")
+    raw = str(qs.get("after_event_id", [None])[0] or "").strip()
+    return raw or None
+
+
+def _session_snapshot_payload(session, *, active_stream_id: str | None = None) -> dict:
     try:
-        seq = max(0, int(tail))
-    except (TypeError, ValueError):
-        return run_id or None, None
-    return run_id or None, seq
+        payload = session.compact(
+            include_runtime=bool(active_stream_id),
+            active_stream_ids={active_stream_id} if active_stream_id else None,
+        )
+    except Exception:
+        payload = {"session_id": str(getattr(session, "session_id", "") or "")}
+    return {"session": payload}
+
+
+def _parse_run_journal_event_id(raw: str | None) -> tuple[str | None, int | None]:
+    return _shared_parse_run_journal_event_id(raw)
 
 
 def _parse_run_journal_after_seq(qs: dict, stream_id: str | None = None) -> int | None:
@@ -16823,6 +16858,168 @@ def _handle_sse_stream(handler, parsed):
             except Exception:
                 pass
     return True
+
+
+def _handle_session_run_journal_stream_for_session(handler, parsed, session_id):
+    if not _session_id_visible_to_request_profile(handler, session_id):
+        return True
+    try:
+        session = get_session(session_id, metadata_only=True)
+    except KeyError:
+        return j(handler, {"error": "Session not found"}, status=404)
+
+    # Parse the resume cursor and baseline the journal BEFORE committing SSE headers
+    # (and thus before any run could complete mid-handler). Capturing after
+    # end_sse_headers() leaves a window where a run finishing between header commit
+    # and baseline is absorbed into the baseline and silently lost. Both operations
+    # are side-effect-free (header read + stat-only fingerprint), safe pre-response.
+    resume_event_id = _session_events_resume_event_id(handler, parsed)
+    _idle_journal_fp = session_journal_fingerprint(session_id)
+
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+    handler.send_header("Cache-Control", "no-cache")
+    handler.send_header("X-Accel-Buffering", "no")
+    # #3103: see _handle_gateway_sse_stream — `Connection: close` causes
+    # EventSource reconnect storms in browsers on long-lived SSE.
+    end_sse_headers(handler)
+    _sse_set_write_deadline(handler)
+
+    active_stream_id = _active_run_stream_for_session(session_id)
+    subscriber = None
+    subscriber_stream = None
+    replay_cutoff_seq = None
+    sent_event_ids: set[str] = set()
+    sent_event_order = deque()
+
+    def note_sent_event_id(event_id):
+        if not event_id:
+            return
+        sent_event_ids.add(event_id)
+        sent_event_order.append(event_id)
+        while len(sent_event_order) > _SESSION_SSE_SENT_EVENT_ID_LIMIT:
+            sent_event_ids.discard(sent_event_order.popleft())
+
+    def attach_active_stream():
+        stream_id = _active_run_stream_for_session(session_id)
+        stream = STREAMS.get(stream_id) if stream_id else None
+        if stream is None:
+            return None, None, None, stream_id
+        if hasattr(stream, "subscribe_with_snapshot"):
+            queue_, snapshot = stream.subscribe_with_snapshot()
+        else:
+            queue_ = stream.subscribe() if hasattr(stream, "subscribe") else stream
+            snapshot = {}
+        return queue_, stream, snapshot, stream_id
+
+    def emit_replay(events, stream_id, cutoff_seq):
+        for entry in events:
+            event_id = str(entry.get("event_id") or "")
+            event_seq = _run_journal_same_run_seq(event_id, stream_id)
+            if cutoff_seq is not None and event_seq is not None and event_seq > cutoff_seq:
+                continue
+            if event_id and event_id in sent_event_ids:
+                continue
+            _sse_with_id(handler, entry.get("event") or entry.get("type") or "message", entry.get("payload"), event_id)
+            if event_id:
+                note_sent_event_id(event_id)
+
+    def emit_session_snapshot(active_stream_id):
+        try:
+            fresh_session = get_session(session_id, metadata_only=True)
+        except KeyError:
+            fresh_session = session
+        _sse(handler, "session_snapshot", _session_snapshot_payload(fresh_session, active_stream_id=active_stream_id))
+
+    try:
+        replay_events = []
+        replay_ok = False
+        if resume_event_id:
+            replay = read_session_run_events(session_id, after_event_id=resume_event_id)
+            if replay.get("status") != "ok":
+                emit_session_snapshot(active_stream_id)
+            else:
+                replay_ok = True
+                replay_events = replay.get("events") or []
+        subscriber, subscriber_stream, stream_snapshot, active_stream_id = attach_active_stream()
+        if subscriber is None:
+            if replay_ok:
+                emit_replay(replay_events, active_stream_id, None)
+            while True:
+                subscriber, subscriber_stream, stream_snapshot, active_stream_id = attach_active_stream()
+                if subscriber is not None:
+                    break
+                # Journal advanced with no live stream to attach → a run completed
+                # entirely within the wait (or the first attach). Re-sync via a
+                # snapshot boundary (the same honest-recovery contract used for a
+                # failed reconciliation), then re-baseline so we only re-sync on
+                # genuinely new advances.
+                _current_journal_fp = session_journal_fingerprint(session_id)
+                if _current_journal_fp != _idle_journal_fp:
+                    _idle_journal_fp = _current_journal_fp
+                    emit_session_snapshot(active_stream_id)
+                handler.wfile.write(b": keepalive\n\n")
+                handler.wfile.flush()
+                time.sleep(_SSE_HEARTBEAT_INTERVAL_SECONDS)
+        if subscriber is None:
+            return True
+        if replay_ok:
+            replay_cutoff_seq = _run_journal_same_run_seq(str(stream_snapshot.get("last_event_id") or ""), active_stream_id)
+            reconciled = read_session_run_events(session_id, after_event_id=resume_event_id)
+            if reconciled.get("status") == "ok":
+                emit_replay(reconciled.get("events") or [], active_stream_id, replay_cutoff_seq)
+            else:
+                emit_session_snapshot(active_stream_id)
+        try:
+            while True:
+                try:
+                    item = subscriber.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+                except queue.Empty:
+                    handler.wfile.write(b": keepalive\n\n")
+                    handler.wfile.flush()
+                    continue
+                if len(item) >= 3:
+                    event, data, queued_event_id = item[0], item[1], item[2]
+                else:
+                    event, data = item
+                    queued_event_id = STREAM_LAST_EVENT_ID.get(active_stream_id)
+                event_id = queued_event_id or STREAM_LAST_EVENT_ID.get(active_stream_id)
+                event_seq = _run_journal_same_run_seq(event_id, active_stream_id)
+                _is_terminal = event in ("stream_end", "error", "cancel")
+                _already_sent = (
+                    (replay_cutoff_seq is not None and event_seq is not None and event_seq <= replay_cutoff_seq)
+                    or (event_id and event_id in sent_event_ids)
+                )
+                if _already_sent:
+                    # Already delivered via replay/reconciliation (cutoff or dedup).
+                    # A terminal event still has to end this loop — otherwise, when
+                    # reconciliation replayed the active run's terminal at the cutoff,
+                    # the live copy would be skipped here and the handler would stay
+                    # blocked on a dead run's queue and miss subsequent session runs.
+                    if _is_terminal:
+                        break
+                    continue
+                if event_id:
+                    _sse_with_id(handler, event, data, event_id)
+                    note_sent_event_id(event_id)
+                else:
+                    _sse(handler, event, data)
+                if _is_terminal:
+                    break
+        except _CLIENT_DISCONNECT_ERRORS:
+            pass
+    except _CLIENT_DISCONNECT_ERRORS:
+        pass
+    finally:
+        if subscriber is not None and subscriber is not subscriber_stream and hasattr(subscriber_stream, "unsubscribe"):
+            try:
+                subscriber_stream.unsubscribe(subscriber)
+            except Exception:
+                pass
+    return True
+
+
+_handle_session_sse_stream_for_session = _handle_session_run_journal_stream_for_session
 
 
 def _terminal_session_lookup(body_or_query):
