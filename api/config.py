@@ -2808,9 +2808,46 @@ def resolve_model_provider(model_id: str) -> tuple:
             # earlier by the ``prefix == config_provider`` branch.
             _cp_lower = (config_provider or "").strip().lower()
             _is_custom = _cp_lower == "custom" or _cp_lower.startswith("custom:")
-            if prefix in _PROVIDER_MODELS and (
-                not _is_custom or _is_first_party_model(prefix, bare)
-            ):
+            if _is_custom:
+                # Vendor-routing proxy: the ONLY reliable signal for whether the
+                # endpoint wants the full ``vendor/model`` id or the bare id is
+                # what its own catalog actually advertised (the ids the user
+                # picked from the dropdown, populated by the endpoint's live
+                # ``/v1/models`` probe or a ``custom_providers[].models``
+                # allowlist). The catalog-FAMILY heuristic (_is_first_party_model)
+                # is the wrong question: it answered "is this bare id a first-
+                # party model of the prefix's home vendor?" which is True for BOTH
+                # ``x-ai/grok-4.5`` (proxy advertised it whole — must preserve,
+                # #5979) and ``openai/gpt-5.4`` (a stale leftover on a relay that
+                # only serves bare ``gpt-5.4`` — must strip, #433). Those two are
+                # structurally identical to the family heuristic, so a model
+                # graduating into a first-party catalog (agent commit 62ada5175
+                # adding grok-4.5) silently flipped a working custom-proxy id from
+                # preserved to stripped. Provenance tells them apart:
+                _advertised = _endpoint_advertised_model_ids(config_provider)
+                if _advertised:
+                    # Full id advertised → the endpoint routes on it verbatim (#5979/#3872/#548).
+                    if model_id in _advertised:
+                        return model_id, config_provider, config_base_url
+                    # ONLY the bare id advertised → the prefix is a redundant
+                    # leftover the relay rejects; strip it (#433). Keep the
+                    # ``prefix in _PROVIDER_MODELS`` belt so an adversarial catalog
+                    # advertising a bare id can't strip an unknown-vendor prefix.
+                    if bare in _advertised and prefix in _PROVIDER_MODELS:
+                        return bare, config_provider, config_base_url
+                # Cold/unbuilt catalog OR neither shape advertised → preserve the
+                # id verbatim. This is the fail-SAFE default: a wrong strip would
+                # destroy a namespace the user actively selected this session
+                # (recurs every turn, unrepairable — the info is gone), while a
+                # wrong preserve only mis-sends a stale leftover that fails loudly
+                # and self-heals the moment the catalog builds. Matches the
+                # agent's own normalize_model_for_provider (custom = pass-through)
+                # and the #4210 no-base_url custom behaviour.
+                return model_id, config_provider, config_base_url
+            # Non-custom first-party provider pointed at an OpenAI-compatible
+            # proxy (e.g. provider=openai + base_url=litellm): the bare id is
+            # what it expects — "openai/gpt-5.4" → "gpt-5.4" (#433).
+            if prefix in _PROVIDER_MODELS:
                 return bare, config_provider, config_base_url
             # Intrinsic / unknown prefix — pass the full model_id through unchanged.
             return model_id, config_provider, config_base_url
@@ -4510,6 +4547,64 @@ _SESSION_VISIT_MODELS_FRESHNESS_SECONDS: float = 300.0
 _available_models_cache_lock = threading.RLock()  # must be RLock: cold path refactoring moved slow work inside this lock, requiring re-entry
 _cache_build_cv = threading.Condition(_available_models_cache_lock)  # shares underlying RLock so notify_all() is safe inside with _available_models_cache_lock
 _cache_build_in_progress = False  # True while a cold path is actively building
+
+# Memoized (snapshot_ref, {provider_slug: frozenset(model_ids)}) derived from
+# the published models-catalog snapshot. Used by _endpoint_advertised_model_ids
+# to answer "did this endpoint actually advertise this exact id?" in O(1) per
+# send without rebuilding. Keyed on the snapshot object identity so it is
+# recomputed exactly once per catalog publish (the cache is replaced wholesale,
+# never mutated) and can never serve stale ids from a superseded catalog.
+_advertised_model_ids_memo: tuple | None = None
+
+
+def _endpoint_advertised_model_ids(provider_id: str | None) -> frozenset | None:
+    """Model ids the given provider's group advertised in the current catalog.
+
+    Reads ONLY the already-published in-memory catalog snapshot
+    (``_available_models_cache``) — it never builds, live-probes, or touches
+    disk, so it is safe to call on the per-turn send hot path. Returns:
+
+      * a ``frozenset`` of the ids advertised by ``provider_id``'s own group
+        (bare ids for the active provider, e.g. ``x-ai/grok-4.5``), or
+      * ``None`` when the catalog is cold/unbuilt OR the provider has no group.
+
+    ``None`` means "no provenance signal available" — callers MUST treat that as
+    "preserve the model id verbatim" so a cache miss never silently strips a
+    vendor namespace off an id the user actively selected (#5979). Scoping to
+    the provider's OWN group prevents a same-named id in a sibling group (e.g.
+    an ``openai/gpt-5.4`` sitting in the OpenRouter group) from masquerading as
+    something this custom endpoint advertised.
+    """
+    global _advertised_model_ids_memo
+    snapshot = _available_models_cache  # atomic reference read; publishes replace wholesale
+    if snapshot is None:
+        return None
+    memo = _advertised_model_ids_memo
+    # Identity check (``is``), not id(): holding the snapshot reference in the
+    # memo keeps it alive, so a freed-then-reused id() can't cause a false hit.
+    if memo is None or memo[0] is not snapshot:
+        by_slug: dict[str, frozenset] = {}
+        try:
+            groups = snapshot.get("groups", []) or []
+        except AttributeError:
+            return None
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            slug = str(group.get("provider_id") or "").strip().lower()
+            if not slug:
+                continue
+            ids = frozenset(
+                str(m.get("id"))
+                for m in (group.get("models") or [])
+                if isinstance(m, dict) and m.get("id")
+            )
+            by_slug[slug] = by_slug.get(slug, frozenset()) | ids
+        memo = (snapshot, by_slug)
+        _advertised_model_ids_memo = memo
+    slug = str(provider_id or "").strip().lower()
+    return memo[1].get(slug)
+
 
 # Hard wall-clock budget for a COLD live provider-catalog rebuild when it is
 # run from a foreground request path. The live rebuild does one network probe

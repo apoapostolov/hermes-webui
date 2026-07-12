@@ -27,6 +27,36 @@ def _resolve_with_config(model_id, provider=None, base_url=None, default=None, c
         config.cfg.update(old_cfg)
 
 
+def _resolve_with_catalog(model_id, advertised_ids, *, provider=None, base_url=None,
+                          provider_id='custom', default=None):
+    """Resolve with a seeded models-catalog snapshot (#5979 provenance).
+
+    ``advertised_ids`` is the list of model ids the endpoint's own group
+    advertised (what the user could have picked from the dropdown). Pass ``None``
+    to simulate a COLD/unbuilt catalog. Seeds ``config._available_models_cache``
+    (the snapshot ``_endpoint_advertised_model_ids`` reads) for the duration of
+    the call, resets the derivation memo, and restores both afterwards so tests
+    don't leak catalog state into each other.
+    """
+    old_cache = config._available_models_cache
+    old_memo = config._advertised_model_ids_memo
+    if advertised_ids is None:
+        config._available_models_cache = None
+    else:
+        config._available_models_cache = {
+            'groups': [{
+                'provider_id': provider_id,
+                'models': [{'id': mid, 'label': mid} for mid in advertised_ids],
+            }]
+        }
+    config._advertised_model_ids_memo = None  # force recompute against the seeded snapshot
+    try:
+        return _resolve_with_config(model_id, provider=provider, base_url=base_url, default=default)
+    finally:
+        config._available_models_cache = old_cache
+        config._advertised_model_ids_memo = old_memo
+
+
 # ── OpenRouter prefix handling ────────────────────────────────────────────
 
 def test_openrouter_free_keeps_full_path():
@@ -170,10 +200,12 @@ def test_custom_remote_preserves_intrinsic_vendor_prefix_3872():
     A bare ``custom`` provider with a remote base_url is a vendor-routing proxy
     (LiteLLM, Bedrock gateway). ``bedrock/`` is an intrinsic routing segment the
     proxy needs whole; stripping it to ``opus-4-6`` makes the proxy return 403
-    "model not allowed for your group".
+    "model not allowed for your group". The proxy advertised the full id (the
+    user picked it from the dropdown), so provenance preserves it.
     """
-    model, provider, base_url = _resolve_with_config(
+    model, provider, base_url = _resolve_with_catalog(
         'bedrock/opus-4-6',
+        advertised_ids=['bedrock/opus-4-6'],
         provider='custom',
         base_url='https://router.example.com/v1',
     )
@@ -183,15 +215,20 @@ def test_custom_remote_preserves_intrinsic_vendor_prefix_3872():
 
 
 def test_custom_remote_strips_redundant_first_party_prefix_433():
-    """#433: bare-custom remote proxy still strips a REDUNDANT first-party prefix.
+    """#433: bare-custom remote proxy strips a prefix ONLY when the endpoint
+    advertised just the BARE id (not the full ``vendor/model``).
 
-    ``gpt-5.4`` IS a first-party OpenAI model, so ``openai/`` is a redundant
-    leftover and the proxy expects the bare id. This is the behaviour pinned by
-    test_sprint40_ui_polish.py::test_prefixed_model_stripped_for_custom_endpoint;
-    the #3872 fix must keep it while preserving intrinsic vendor prefixes.
+    #433 is a verified real relay whose ``/v1/models`` returned bare ``gpt-5.4``
+    and rejected ``openai/gpt-5.4`` (a stale cross-provider leftover). The strip
+    is now justified by PROVENANCE — the catalog advertises exactly ``gpt-5.4``
+    and NOT ``openai/gpt-5.4`` — instead of the old catalog-family guess that
+    couldn't tell this stale-leftover case apart from #5979's advertised-full-id
+    case. Behaviour is also pinned by
+    test_sprint40_ui_polish.py::test_prefixed_model_stripped_for_custom_endpoint.
     """
-    model, provider, base_url = _resolve_with_config(
+    model, provider, base_url = _resolve_with_catalog(
         'openai/gpt-5.4',
+        advertised_ids=['gpt-5.4'],  # relay advertises ONLY the bare id
         provider='custom',
         base_url='https://router.example.com/v1',
     )
@@ -199,10 +236,93 @@ def test_custom_remote_strips_redundant_first_party_prefix_433():
     assert provider == 'custom'
 
 
+def test_custom_remote_preserves_advertised_full_id_5979():
+    """#5979 (the P0 regression): a custom proxy that advertises the FULL
+    ``x-ai/grok-4.5`` must receive it whole — never the bare ``grok-4.5``.
+
+    The old code stripped it because ``grok-4.5`` had graduated into the x-ai
+    first-party catalog (agent commit 62ada5175), flipping ``_is_first_party_model``
+    to True for a model the proxy routes on by its full ``x-ai/`` namespace. This
+    is the exact HTTP 400 b3nw hit ("Invalid model format ... grok-4.5"). The
+    provenance rule preserves it because the endpoint advertised the full id.
+    """
+    # Reproduce the data-driven trigger: grok-4.5 present in the x-ai catalog.
+    xai_catalog = config._PROVIDER_MODELS.get('x-ai')
+    assert isinstance(xai_catalog, list)
+    assert any(isinstance(m, dict) and m.get('id') == 'grok-4.5' for m in xai_catalog), (
+        "guard: grok-4.5 must be first-party for this regression test to be meaningful"
+    )
+    model, provider, base_url = _resolve_with_catalog(
+        'x-ai/grok-4.5',
+        advertised_ids=['x-ai/grok-4.5'],  # proxy advertises the FULL namespaced id
+        provider='custom',
+        base_url='https://proxy.example.com/v1',
+    )
+    assert model == 'x-ai/grok-4.5', (
+        f"advertised full id must be preserved for routing, got {model!r}"
+    )
+    assert provider == 'custom'
+    assert base_url == 'https://proxy.example.com/v1'
+
+
+def test_named_custom_slug_preserves_advertised_full_id_5979():
+    """#5979 (named-custom variant): provider=custom:<slug> proxy advertising the
+    full ``x-ai/grok-4.5`` also preserves it."""
+    model, provider, base_url = _resolve_with_catalog(
+        'x-ai/grok-4.5',
+        advertised_ids=['x-ai/grok-4.5'],
+        provider='custom:my-gateway',
+        provider_id='custom:my-gateway',
+        base_url='https://proxy.example.com/v1',
+    )
+    assert model == 'x-ai/grok-4.5', f"full id must be preserved for custom:slug, got {model!r}"
+
+
+def test_custom_remote_cold_catalog_preserves_verbatim_5979():
+    """#5979 fail-safe: with a COLD/unbuilt catalog (no provenance signal), a
+    custom proxy preserves the model id verbatim — for BOTH the advertised-full
+    case and the stale-leftover case.
+
+    Preserve is the correct cold default: a wrong strip destroys a namespace the
+    user actively selected this session (recurs every turn, unrepairable), while
+    a wrong preserve only mis-sends a stale leftover that fails loudly and heals
+    the instant the catalog builds. The active-user-selection case (#5979) is
+    cold-safe by construction — you can't select from a dropdown that was never
+    built.
+    """
+    model_a, _, _ = _resolve_with_catalog(
+        'x-ai/grok-4.5', advertised_ids=None,
+        provider='custom', base_url='https://proxy.example.com/v1',
+    )
+    assert model_a == 'x-ai/grok-4.5', f"cold catalog must preserve verbatim, got {model_a!r}"
+    model_b, _, _ = _resolve_with_catalog(
+        'openai/gpt-5.4', advertised_ids=None,
+        provider='custom', base_url='https://router.example.com/v1',
+    )
+    assert model_b == 'openai/gpt-5.4', f"cold catalog must preserve verbatim, got {model_b!r}"
+
+
+def test_custom_remote_prefers_full_id_when_both_advertised_5979():
+    """When a proxy advertises BOTH the full ``x-ai/grok-4.5`` and a bare
+    ``grok-4.5``, the exact full selection wins (preserve)."""
+    model, _, _ = _resolve_with_catalog(
+        'x-ai/grok-4.5',
+        advertised_ids=['x-ai/grok-4.5', 'grok-4.5'],
+        provider='custom',
+        base_url='https://proxy.example.com/v1',
+    )
+    assert model == 'x-ai/grok-4.5', f"exact full selection must win, got {model!r}"
+
+
 def test_custom_remote_preserves_unknown_prefix_548():
-    """#548: an unknown vendor prefix (zai-org/GLM-5.1) is always preserved."""
-    model, provider, base_url = _resolve_with_config(
+    """#548: an unknown vendor prefix (zai-org/GLM-5.1) is always preserved.
+
+    The proxy advertised the full id; ``zai-org`` isn't in _PROVIDER_MODELS so
+    even the bare-advertised belt could never strip it.
+    """
+    model, provider, base_url = _resolve_with_catalog(
         'zai-org/GLM-5.1',
+        advertised_ids=['zai-org/GLM-5.1'],
         provider='custom',
         base_url='https://api.deepinfra.com/v1/openai',
     )
@@ -212,15 +332,13 @@ def test_custom_remote_preserves_unknown_prefix_548():
 
 def test_named_custom_slug_preserves_intrinsic_vendor_prefix_3872():
     """#3872 (named-custom variant): provider=custom:<slug> + remote base_url also
-    preserves an intrinsic vendor prefix when the typed model isn't in the entry.
-
-    A model typed/selected that is not listed in the custom_providers[] entry
-    falls through to the base_url branch; a bare id NOT first-party of the prefix
-    (bedrock/opus-4-6) must still be kept whole, same as bare ``custom``.
+    preserves an intrinsic vendor prefix the endpoint advertised whole.
     """
-    model, provider, base_url = _resolve_with_config(
+    model, provider, base_url = _resolve_with_catalog(
         'bedrock/opus-4-6',
+        advertised_ids=['bedrock/opus-4-6'],
         provider='custom:my-gateway',
+        provider_id='custom:my-gateway',
         base_url='https://router.example.com/v1',
     )
     assert model == 'bedrock/opus-4-6', f"intrinsic prefix must be preserved for custom:slug, got {model!r}"
