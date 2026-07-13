@@ -21680,6 +21680,32 @@ def _handle_chat_start(handler, body, diag=None):
             profile_config=_pp_cfg,
             explicit_model_pick=explicit_model_pick,
         )
+        # #5979: persist whether the user DELIBERATELY selected this session's
+        # model, so the streaming worker's resolve_model_provider() can tell a
+        # deliberate custom-proxy pick (preserve the vendor namespace even on a
+        # cold catalog) from a stale cross-provider leftover (#433, strip). The
+        # resolve happens on a detached worker thread that only has the session
+        # in scope, so the intent is stamped here on the session.
+        #
+        # DURABILITY: the flag must survive follow-up sends that don't re-carry
+        # explicit_model_pick (the onchange marker is one-shot — messages.js
+        # consumes it after the first send). So we only set the flag from THIS
+        # send's explicit_model_pick when it's True, and otherwise CLEAR it only
+        # when the resolved model actually CHANGED from what was stored (a real
+        # switch away from the deliberately-picked model). A plain follow-up send
+        # of the same model keeps the prior intent.
+        try:
+            _prev_model = str(getattr(s, "model", "") or "").strip()
+            _new_model = str(model or "").strip()
+            if explicit_model_pick:
+                s.model_explicitly_picked = True
+            elif _new_model != _prev_model:
+                # model changed without a fresh pick → no longer a deliberate
+                # selection (provider repair / default fallback / stale switch)
+                s.model_explicitly_picked = False
+            # else: unchanged model, no fresh pick → preserve prior intent
+        except Exception:
+            pass
         catalog_profile_provider = _pp_provider
         if catalog_profile_provider is None and isinstance(_pp_cfg, dict):
             profile_model_config = _pp_cfg.get("model") or {}

@@ -2560,7 +2560,7 @@ def _get_provider_cfg(provider_id) -> dict:
     return provider_cfg if isinstance(provider_cfg, dict) else {}
 
 
-def resolve_model_provider(model_id: str) -> tuple:
+def resolve_model_provider(model_id: str, *, explicitly_picked: bool = False) -> tuple:
     """Resolve model name, provider, and base_url for AIAgent.
 
     Model IDs from the dropdown can be in several formats:
@@ -2580,6 +2580,16 @@ def resolve_model_provider(model_id: str) -> tuple:
     provider.
 
     Returns (model, provider, base_url) where provider and base_url may be None.
+
+    ``explicitly_picked``: True when the caller knows the user DELIBERATELY
+    selected ``model_id`` this session (persisted from an ``explicit_model_pick``
+    UI action), as opposed to it being a stale session leftover. Used ONLY for
+    the custom-proxy COLD-catalog decision (#5979): with no provenance available,
+    a deliberately-picked ``vendor/model`` is preserved verbatim (the user chose
+    it, the proxy routes on it), while an UNMARKED id (a stale cross-provider
+    leftover, e.g. #433's ``openai/gpt-5.4`` on a bare-only relay) still gets the
+    legacy redundant-prefix strip so it keeps routing when cold. Warm provenance
+    (endpoint-advertised ids) always takes precedence over this flag.
     """
     config_provider = None
     config_base_url = None
@@ -2898,24 +2908,32 @@ def resolve_model_provider(model_id: str) -> tuple:
                     return model_id, config_provider, config_base_url
                 # (3) Provenance genuinely unavailable (cold/unbuilt or
                 #     fingerprint-mismatched catalog AND not config-declared).
-                #     PRESERVE the id verbatim. For an EXPLICIT ``custom`` /
-                #     ``custom:<slug>`` proxy the safe default is to send exactly
-                #     what the user selected — a wrong strip destroys a namespace
-                #     the proxy routes on (recurs every turn, unrepairable by the
-                #     user short of declaring every model in config), while a wrong
-                #     preserve only mis-sends a stale cross-provider leftover that
-                #     fails LOUDLY (the relay rejects it; #5940 surfaces the real
-                #     error) and self-heals the instant the catalog warms. The strip
-                #     (#433) now requires POSITIVE provenance that the endpoint
-                #     advertises ONLY the bare id (case 2 above) — it is no longer
-                #     the cold default. This also honours the documented contract
-                #     of _endpoint_advertised_model_ids ("None → preserve verbatim")
-                #     and removes the data-driven flaw where a model graduating into
+                #     Distinguish a DELIBERATE selection from a stale leftover:
+                #
+                #     * explicitly_picked → PRESERVE verbatim. The user chose this
+                #       exact ``vendor/model`` in the UI this session; the proxy
+                #       routes on it. A wrong strip destroys a namespace the proxy
+                #       needs (recurs every turn, unrepairable short of declaring
+                #       every model in config) — this is b3nw's #5979 case: a
+                #       non-default pick on a custom:<slug> proxy, cold catalog.
+                #     * NOT explicitly_picked → legacy redundant-prefix strip. An
+                #       unmarked id here is a stale cross-provider leftover (the
+                #       user switched providers and the old session model lingers,
+                #       e.g. #433's ``openai/gpt-5.4`` on a relay that only serves
+                #       bare ``gpt-5.4``); stripping keeps it routing while cold.
+                #
+                #     Warm provenance (case 2, endpoint-advertised ids) always
+                #     wins over this flag; the send path also warms provenance
+                #     network-free from the disk cache first
+                #     (warm_models_catalog_provenance_if_cold), so this branch is
+                #     reached only in the narrow no-disk-cache window. The flag
+                #     removes the data-driven flaw where a model graduating into
                 #     the static first-party catalog silently flipped routing
-                #     (exactly how #5979 regressed). The send path additionally
-                #     warms provenance network-free from the disk cache
-                #     (warm_models_catalog_provenance_if_cold) so this cold branch
-                #     is reached only in the narrow no-disk-cache window.
+                #     (exactly how #5979 regressed).
+                if explicitly_picked:
+                    return model_id, config_provider, config_base_url
+                if prefix in _PROVIDER_MODELS and _is_first_party_model(prefix, bare):
+                    return bare, config_provider, config_base_url
                 return model_id, config_provider, config_base_url
             # Non-custom first-party provider pointed at an OpenAI-compatible
             # proxy (e.g. provider=openai + base_url=litellm): the bare id is

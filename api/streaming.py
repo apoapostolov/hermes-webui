@@ -7903,12 +7903,18 @@ def _run_agent_streaming(
             # owning-session profile across warm + resolve so both see the right
             # profile (no-op for the default/root profile).
             from api import profiles as profiles_api
+            # #5979: whether the user deliberately picked this session's model
+            # (persisted by /api/chat/start). Lets the cold-catalog custom-proxy
+            # branch preserve a deliberate vendor-namespaced pick while still
+            # stripping a stale cross-provider leftover (#433).
+            _explicitly_picked = bool(getattr(s, "model_explicitly_picked", False))
             with profiles_api.profile_scope_for_detached_worker(
                 _resolved_profile_name, "model resolution", logger_override=logger
             ):
                 warm_models_catalog_provenance_if_cold()
                 resolved_model, resolved_provider, resolved_base_url = resolve_model_provider(
-                    model_with_provider_context(model, provider_context)
+                    model_with_provider_context(model, provider_context),
+                    explicitly_picked=_explicitly_picked,
                 )
             configured_base_url = resolved_base_url
 

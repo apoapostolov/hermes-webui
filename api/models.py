@@ -1136,6 +1136,11 @@ class Session:
         self.workspace = str(Path(workspace).expanduser().resolve())
         self.model = model
         self.model_provider = str(model_provider).strip().lower() if model_provider else None
+        # #5979: True when the user deliberately picked this session's model in
+        # the UI (persisted so the streaming resolver can preserve a custom-proxy
+        # vendor namespace on a cold catalog vs. stripping a stale leftover).
+        # Restored from the persisted metadata on load (arrives via **kwargs).
+        self.model_explicitly_picked = bool(kwargs.get('model_explicitly_picked', False))
         self.messages = messages or []
         self.tool_calls = tool_calls or []
         self.created_at = created_at or time.time()
@@ -1255,7 +1260,7 @@ class Session:
         # without parsing the full messages array (which may be 400KB+).
         # Fields are listed in the order they should appear in the JSON file.
         METADATA_FIELDS = [
-            'session_id', 'title', 'workspace', 'model', 'model_provider', 'created_at', 'updated_at',
+            'session_id', 'title', 'workspace', 'model', 'model_provider', 'model_explicitly_picked', 'created_at', 'updated_at',
             'pinned', 'archived', 'project_id', 'profile',
             'input_tokens', 'output_tokens', 'estimated_cost',
             'cache_read_tokens', 'cache_write_tokens',

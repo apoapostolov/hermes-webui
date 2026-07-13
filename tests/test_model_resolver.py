@@ -7,7 +7,8 @@ import pytest
 import api.config as config
 
 
-def _resolve_with_config(model_id, provider=None, base_url=None, default=None, custom_providers=None):
+def _resolve_with_config(model_id, provider=None, base_url=None, default=None, custom_providers=None,
+                         explicitly_picked=False):
     """Helper: temporarily set config.cfg model/custom provider sections, call resolve, restore."""
     old_cfg = dict(config.cfg)
     model_cfg = {}
@@ -21,14 +22,14 @@ def _resolve_with_config(model_id, provider=None, base_url=None, default=None, c
     if custom_providers is not None:
         config.cfg['custom_providers'] = custom_providers
     try:
-        return config.resolve_model_provider(model_id)
+        return config.resolve_model_provider(model_id, explicitly_picked=explicitly_picked)
     finally:
         config.cfg.clear()
         config.cfg.update(old_cfg)
 
 
 def _resolve_with_catalog(model_id, advertised_ids, *, provider=None, base_url=None,
-                          provider_id='custom', default=None):
+                          provider_id='custom', default=None, explicitly_picked=False):
     """Resolve with a seeded models-catalog snapshot (#5979 provenance).
 
     ``advertised_ids`` is the list of model ids the endpoint's own group
@@ -57,7 +58,8 @@ def _resolve_with_catalog(model_id, advertised_ids, *, provider=None, base_url=N
     config._advertised_model_ids_memo = None  # force recompute against the seeded snapshot
     config._sync_models_cache_provenance()  # publish the atomic (snapshot, fingerprint) pair
     try:
-        return _resolve_with_config(model_id, provider=provider, base_url=base_url, default=default)
+        return _resolve_with_config(model_id, provider=provider, base_url=base_url, default=default,
+                                    explicitly_picked=explicitly_picked)
     finally:
         config._available_models_cache = old_cache
         config._advertised_model_ids_memo = old_memo
@@ -300,32 +302,36 @@ def test_named_custom_slug_preserves_advertised_full_id_5979():
     assert model == 'x-ai/grok-4.5', f"full id must be preserved for custom:slug, got {model!r}"
 
 
-def test_custom_remote_cold_catalog_preserves_verbatim_5979():
-    """#5979 (reopened): with a COLD/unbuilt catalog AND no config declaration,
-    an explicit custom proxy PRESERVES the id verbatim — the strip now requires
-    positive provenance (endpoint advertises only the bare id), it is no longer
-    the cold default.
+def test_custom_remote_cold_catalog_explicit_pick_preserves_5979():
+    """#5979 (reopened): with a COLD catalog and no config declaration, an
+    EXPLICITLY-PICKED custom-proxy id is preserved verbatim (the user chose it;
+    the proxy routes on it), while an UNMARKED id gets the legacy strip.
 
-    This is the fix for b3nw's reopened case: a user's actively-selected
-    NON-default model on a ``custom:<slug>`` proxy was truncated on every cold
-    send because the old cold fallback ran the legacy family heuristic. A wrong
-    strip destroys a namespace the proxy routes on (recurs every turn,
-    unrepairable); a wrong preserve only mis-sends a stale leftover that fails
-    loudly and self-heals on the next catalog warm. So cold → preserve for BOTH
-    a first-party-looking prefix and an unknown one.
+    This is the persisted-explicit-pick resolution (Codex's mechanism, Nathan's
+    call): the cold decision is no longer an unconditional preserve — it is
+    gated on whether the user deliberately selected the model this session.
     """
-    # first-party-looking prefix → PRESERVE (was: strip). This is the flip.
-    model_a, _, _ = _resolve_with_catalog(
+    # explicitly picked → PRESERVE even though grok graduated into first-party x-ai
+    picked, _, _ = _resolve_with_catalog(
         'openai/gpt-5.4', advertised_ids=None,
         provider='custom', base_url='https://router.example.com/v1',
+        explicitly_picked=True,
     )
-    assert model_a == 'openai/gpt-5.4', f"cold catalog must preserve verbatim, got {model_a!r}"
-    # intrinsic/unknown prefix → preserve (unchanged)
-    model_b, _, _ = _resolve_with_catalog(
+    assert picked == 'openai/gpt-5.4', f"explicit pick must preserve cold, got {picked!r}"
+    # NOT picked (stale leftover) → legacy strip keeps #433 relay routing cold
+    stale, _, _ = _resolve_with_catalog(
+        'openai/gpt-5.4', advertised_ids=None,
+        provider='custom', base_url='https://router.example.com/v1',
+        explicitly_picked=False,
+    )
+    assert stale == 'gpt-5.4', f"unmarked stale id must strip cold (legacy #433), got {stale!r}"
+    # intrinsic/unknown prefix → preserve regardless (no first-party family match)
+    unknown, _, _ = _resolve_with_catalog(
         'zai-org/GLM-5.1', advertised_ids=None,
         provider='custom', base_url='https://api.deepinfra.com/v1/openai',
+        explicitly_picked=False,
     )
-    assert model_b == 'zai-org/GLM-5.1', f"cold unknown prefix must preserve, got {model_b!r}"
+    assert unknown == 'zai-org/GLM-5.1', f"cold unknown prefix must preserve, got {unknown!r}"
 
 
 def test_custom_remote_config_declared_full_id_preserved_cold_5979():
@@ -413,12 +419,13 @@ def test_custom_remote_foreign_profile_catalog_ignored_5979():
     catalog.
 
     Proof id: ``openai/gpt-5.4`` with the FOREIGN catalog advertising ONLY the
-    bare ``gpt-5.4``. If the foreign catalog were (wrongly) trusted, the
-    bare-only-advertised rule would strip → ``gpt-5.4``. Because the fingerprint
-    mismatches, the snapshot is ignored and resolution takes the cold-preserve
-    default → ``openai/gpt-5.4``. The two outcomes genuinely diverge, so a result
-    of ``openai/gpt-5.4`` proves the foreign catalog was ignored (not merely that
-    the prefix was unknown).
+    bare ``gpt-5.4``, resolved as an EXPLICIT pick. If the foreign catalog were
+    (wrongly) trusted, the bare-only-advertised rule (warm provenance, which
+    wins over the pick flag) would strip → ``gpt-5.4``. Because the fingerprint
+    mismatches, the snapshot is ignored and resolution takes the cold branch;
+    with the explicit-pick flag set that preserves → ``openai/gpt-5.4``. The two
+    outcomes genuinely diverge, so ``openai/gpt-5.4`` proves the foreign catalog
+    was ignored.
     """
     old_cache = config._available_models_cache
     old_memo = config._advertised_model_ids_memo
@@ -433,6 +440,7 @@ def test_custom_remote_foreign_profile_catalog_ignored_5979():
     try:
         model, _, _ = _resolve_with_config(
             'openai/gpt-5.4', provider='custom', base_url='https://relay.example/v1',
+            explicitly_picked=True,
         )
     finally:
         config._available_models_cache = old_cache
@@ -440,7 +448,7 @@ def test_custom_remote_foreign_profile_catalog_ignored_5979():
         config._available_models_cache_source_fingerprint = old_fp
         config._models_cache_provenance = old_prov
     assert model == 'openai/gpt-5.4', (
-        f"foreign-profile catalog must be ignored (cold-preserve default), got {model!r}"
+        f"foreign-profile catalog must be ignored (cold explicit-pick preserve), got {model!r}"
     )
 
 
@@ -526,7 +534,7 @@ def test_b3nw_cold_nondeclared_custom_slug_preserves_full_id_5979():
     config._sync_models_cache_provenance()
     try:
         assert config._is_first_party_model('x-ai', bare), "precondition: stub failed"
-        model, provider, _ = config.resolve_model_provider(mid)
+        model, provider, _ = config.resolve_model_provider(mid, explicitly_picked=True)
     finally:
         if not had:
             if old_xai is None:
@@ -539,6 +547,47 @@ def test_b3nw_cold_nondeclared_custom_slug_preserves_full_id_5979():
         config._available_models_cache = old_cache
     assert model == mid, f"b3nw's non-declared cold custom-proxy pick must preserve, got {model!r}"
     assert provider == 'custom:llm-proxy'
+
+
+def test_custom_slug_cold_stale_not_picked_still_strips_5979():
+    """Companion to b3nw's case: the SAME cold custom:<slug> shape, but the id is
+    NOT explicitly picked (a stale first-party leftover), still gets the legacy
+    strip — so #433-style stale sessions keep routing when cold and only
+    deliberate picks are preserved verbatim.
+    """
+    mid = 'x-ai/grok-composer-2.5-fast'
+    bare = 'grok-composer-2.5-fast'
+    xai = list(config._PROVIDER_MODELS.get('x-ai') or [])
+    had = any(isinstance(m, dict) and m.get('id') == bare for m in xai)
+    old_xai = config._PROVIDER_MODELS.get('x-ai')
+    old_cfg = dict(config.cfg)
+    old_prov = config._models_cache_provenance
+    old_cache = config._available_models_cache
+    if not had:
+        config._PROVIDER_MODELS['x-ai'] = xai + [{'id': bare, 'label': 'Grok Composer 2.5 Fast'}]
+    config.cfg.clear()
+    config.cfg.update({
+        'model': {'default': 'x-ai/grok-4.5', 'provider': 'custom:llm-proxy',
+                  'base_url': 'https://proxy.example/v1'},
+        'custom_providers': [{'name': 'llm-proxy', 'base_url': 'https://proxy.example/v1',
+                              'key_env': 'LLM_PROXY_API_KEY'}],
+    })
+    config._available_models_cache = None  # COLD
+    config._advertised_model_ids_memo = None
+    config._sync_models_cache_provenance()
+    try:
+        model, _, _ = config.resolve_model_provider(mid, explicitly_picked=False)
+    finally:
+        if not had:
+            if old_xai is None:
+                config._PROVIDER_MODELS.pop('x-ai', None)
+            else:
+                config._PROVIDER_MODELS['x-ai'] = old_xai
+        config.cfg.clear()
+        config.cfg.update(old_cfg)
+        config._models_cache_provenance = old_prov
+        config._available_models_cache = old_cache
+    assert model == bare, f"unmarked stale cold custom:slug id must strip (legacy), got {model!r}"
 
 
 def test_warm_models_catalog_provenance_if_cold_publishes_from_disk_5979():
