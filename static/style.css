@@ -4091,6 +4091,7 @@ body.resizing .sidebar{transition:none!important;}
   border-radius:0;
   color:var(--muted);
   transition:background .18s ease,color .18s ease;
+  overflow:hidden;
 }
 .transparent-event-row .tool-card-header:hover,
 .transparent-event-row .thinking-card-header:hover{background:var(--hover-bg);color:var(--text);}
@@ -4117,6 +4118,9 @@ body.resizing .sidebar{transition:none!important;}
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
+}
+@media (max-width:360px){
+  .transparent-event-row .tool-card-name{display:none;}
 }
 .transparent-event-row .tool-card-title,
 .transparent-event-row .tool-card-preview{
