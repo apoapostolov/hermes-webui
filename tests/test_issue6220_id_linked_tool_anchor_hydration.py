@@ -172,6 +172,47 @@ def test_id_linked_historical_tool_turn_hydrates_one_anchor_scene_idempotently()
 
 
 @pytest.mark.skipif(NODE is None, reason="node is required for Anchor hydration tests")
+def test_id_linked_historical_multi_tool_turn_preserves_declaration_order():
+    messages = [
+        {"role": "user", "content": "Inspect both files"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call-first",
+                    "type": "function",
+                    "function": {
+                        "name": "terminal",
+                        "arguments": '{"command":"pwd"}',
+                    },
+                },
+                {
+                    "id": "call-second",
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"path":"README.md"}',
+                    },
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call-second", "content": "readme body"},
+        {"role": "tool", "tool_call_id": "call-first", "content": "/workspace"},
+        {"role": "assistant", "content": "Both checks completed."},
+    ]
+
+    data = _run_hydration(messages, repeat=True)
+
+    assert data["first"] == 1
+    assert data["second"] == 0
+    rows = data["owners"][0]["scene"]["activity_rows"]
+    assert [row["tool_call_id"] for row in rows] == ["call-first", "call-second"]
+    assert [row["tool"]["name"] for row in rows] == ["terminal", "read_file"]
+    assert [row["tool"]["snippet"] for row in rows] == ["/workspace", "readme body"]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is required for Anchor hydration tests")
 @pytest.mark.parametrize(
     "messages",
     [
@@ -225,6 +266,23 @@ def test_id_linked_historical_tool_turn_hydrates_one_anchor_scene_idempotently()
             {"role": "user", "content": "Run it"},
             {"role": "assistant", "content": [{"type": "tool_use", "id": "tool-1", "name": "terminal", "input": {}}]},
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tool-1", "content": "ok"}]},
+            {"role": "assistant", "content": "Done"},
+        ],
+        [
+            {"role": "user", "content": "Run it"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call-1", "function": {"name": "terminal", "arguments": "{not-json"}}]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "ok"},
+            {"role": "assistant", "content": "Done"},
+        ],
+        [
+            {"role": "user", "content": "Run it"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "call-1", "function": {"name": "terminal", "arguments": "{}"}}],
+                "_partial_tool_calls": [{"name": "terminal"}],
+            },
+            {"role": "tool", "tool_call_id": "call-1", "content": "ok"},
             {"role": "assistant", "content": "Done"},
         ],
     ],
