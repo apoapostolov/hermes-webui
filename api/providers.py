@@ -48,6 +48,7 @@ from api.config import (
     invalidate_models_cache,
     reload_config,
 )
+from api.helpers import _sanitize_error
 from api.plugin_providers import (
     effective_provider_display_name,
     effective_provider_env_var,
@@ -178,6 +179,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from typing import Any
 from urllib import request as urllib_request
 
 from agent.account_usage import fetch_account_usage
@@ -220,6 +222,9 @@ def _snapshot_payload(snapshot):
         "unavailable_reason": getattr(snapshot, "unavailable_reason", None),
         "fetched_at": _iso(getattr(snapshot, "fetched_at", None)),
     }
+    banked_resets = _subprocess_coerce_banked_resets(getattr(snapshot, "banked_resets", None))
+    if banked_resets is not None:
+        payload["banked_resets"] = banked_resets
     pool = getattr(snapshot, "pool", None)
     if isinstance(pool, dict):
         payload["pool"] = pool
@@ -350,6 +355,7 @@ def _codex_snapshot_from_usage_payload(payload):
         ))
 
     details = []
+    banked_resets = None
     credits = payload.get("credits")
     if isinstance(credits, dict) and credits.get("has_credits"):
         balance = _number(credits.get("balance"))
@@ -357,6 +363,13 @@ def _codex_snapshot_from_usage_payload(payload):
             details.append("Credits balance: $" + format(float(balance), ".2f"))
         elif credits.get("unlimited"):
             details.append("Credits balance: unlimited")
+    reset_credits = payload.get("rate_limit_reset_credits")
+    if isinstance(reset_credits, dict):
+        banked_resets = _subprocess_coerce_banked_resets(
+            reset_credits,
+            redeemable=True,
+            reason_code=None,
+        )
 
     return SimpleNamespace(
         provider="openai-codex",
@@ -365,6 +378,7 @@ def _codex_snapshot_from_usage_payload(payload):
         plan=_title_case_slug(payload.get("plan_type")),
         windows=tuple(windows),
         details=tuple(details),
+        banked_resets=banked_resets,
         available=bool(windows or details),
         unavailable_reason=None,
         fetched_at=datetime.now(timezone.utc),
@@ -420,6 +434,38 @@ def _safe_unavailable_reason(reason):
     return text[:180]
 
 
+def _subprocess_count_value(value: Any) -> int | None:
+    number = _number(value)
+    if number is None:
+        return None
+    try:
+        return max(0, int(number))
+    except (TypeError, ValueError):
+        return None
+
+
+def _subprocess_coerce_banked_resets(value: Any, *, redeemable: bool | None = None, reason_code: str | None = None, complete: bool | None = None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        count = _subprocess_count_value(value.get("available_count"))
+        redeemable = value.get("redeemable") if redeemable is None else redeemable
+        reason_code = value.get("reason_code") if reason_code is None else reason_code
+        complete = value.get("complete") if complete is None else complete
+    else:
+        count = _subprocess_count_value(getattr(value, "available_count", value))
+        if complete is None:
+            complete = getattr(value, "complete", None)
+    if count is None:
+        return None
+    return {
+        "available_count": count,
+        "redeemable": bool(redeemable) if redeemable is not None else False,
+        "reason_code": (str(reason_code).strip() or None) if reason_code is not None else None,
+        "complete": bool(complete) if complete is not None else True,
+    }
+
+
 def _entry_exhausted_ttl_seconds(error_code):
     code = str(error_code or "").strip()
     if code == "401":
@@ -444,9 +490,9 @@ def _entry_is_pool_exhausted(entry):
     return exhausted_until is not None and datetime.now(timezone.utc) < exhausted_until
 
 
-def _entry_pool_exhausted_reason(entry):
+def _subprocess_entry_pool_exhausted_reason(entry):
     code = _entry_value(entry, "last_error_code")
-    reset_at = _entry_pool_retry_after(entry)
+    reset_at = _subprocess_entry_pool_retry_after(entry)
     reason = "Credential pool marked this credential exhausted"
     if code:
         reason += " after provider status " + code
@@ -455,7 +501,7 @@ def _entry_pool_exhausted_reason(entry):
     return reason + "."
 
 
-def _entry_pool_retry_after(entry):
+def _subprocess_entry_pool_retry_after(entry):
     return _iso(_entry_pool_exhausted_until(entry))
 
 
@@ -524,6 +570,25 @@ def _codex_pool_snapshot(entries, rows, queried):
     available_rows = [row for row in rows if row.get("status") == "available"]
     exhausted_rows = [row for row in rows if row.get("status") == "exhausted"]
     failed_rows = [row for row in rows if row.get("status") not in {"available", "exhausted"}]
+    known_banked_reset_count = 0
+    known_banked_reset_rows = 0
+    total_banked_reset_rows = len(rows)
+    for row in rows:
+        row_banked_resets = _subprocess_coerce_banked_resets(row.get("banked_resets"))
+        if row_banked_resets is None:
+            continue
+        known_banked_reset_rows += 1
+        known_banked_reset_count += row_banked_resets["available_count"]
+    pool_banked_resets = None
+    if known_banked_reset_rows > 0:
+        pool_banked_resets = _subprocess_coerce_banked_resets(
+            {
+                "available_count": known_banked_reset_count,
+                "complete": known_banked_reset_rows == total_banked_reset_rows,
+            },
+            redeemable=len(entries) == 1,
+            reason_code=None if len(entries) == 1 else "ambiguous_pool",
+        )
     plans = []
     for row in rows:
         plan = row.get("plan")
@@ -538,6 +603,7 @@ def _codex_pool_snapshot(entries, rows, queried):
         "failed_credentials": len(failed_rows),
         "plans": plans,
         "next_reset_at": _next_reset_at(rows),
+        "banked_resets": pool_banked_resets,
         "best_remaining_by_window": best_windows,
         "credentials": rows,
     }
@@ -565,30 +631,20 @@ def _codex_pool_snapshot(entries, rows, queried):
         plan=plan,
         windows=windows,
         details=tuple(details),
+        banked_resets=pool_banked_resets,
         available=bool(available_rows),
-        unavailable_reason=None if available_rows else "No Codex pool credentials returned available account limits.",
+        unavailable_reason=(
+            None
+            if available_rows
+            else "No Codex pool credentials returned available account limits."
+        ),
         fetched_at=datetime.now(timezone.utc),
         pool=pool,
     )
 
 
-def _codex_pool_exhausted_row(entry, index):
-    label = _safe_entry_label(entry, index)
-    retry_after = _entry_pool_retry_after(entry)
-    return {
-        "label": label,
-        "status": "exhausted",
-        "plan": None,
-        "windows": [],
-        "details": [],
-        "unavailable_reason": _entry_pool_exhausted_reason(entry),
-        "retry_after": retry_after,
-        "fetched_at": None,
-    }
-
-
 def _probe_codex_pool_entry(item):
-    index, entry = item
+    index, entry, preserve_exhausted, exhausted_reason, retry_after = item
     label = _safe_entry_label(entry, index)
     did_query_count = 0
     try:
@@ -601,16 +657,27 @@ def _probe_codex_pool_entry(item):
     windows = _snapshot_windows_payload(snapshot) if snapshot is not None else []
     details = _snapshot_details_payload(snapshot) if snapshot is not None else []
     snapshot_available = _snapshot_available(snapshot)
-    status = "available" if snapshot_available else "unavailable"
+    status = "exhausted" if preserve_exhausted else ("available" if snapshot_available else "unavailable")
+    banked_resets = _subprocess_coerce_banked_resets(
+        getattr(snapshot, "banked_resets", None),
+        redeemable=False if preserve_exhausted else None,
+    ) if snapshot is not None else None
     row = {
         "label": label,
         "status": status,
         "plan": getattr(snapshot, "plan", None) if snapshot is not None else None,
         "windows": windows,
         "details": details,
-        "unavailable_reason": None if snapshot_available else _safe_unavailable_reason(reason or getattr(snapshot, "unavailable_reason", None)),
+        "banked_resets": banked_resets,
+        "unavailable_reason": (
+            exhausted_reason
+            if preserve_exhausted
+            else None if snapshot_available else _safe_unavailable_reason(reason or getattr(snapshot, "unavailable_reason", None))
+        ),
         "fetched_at": _iso(getattr(snapshot, "fetched_at", None)) if snapshot is not None else None,
     }
+    if preserve_exhausted:
+        row["retry_after"] = retry_after
     return index, row, did_query_count
 
 
@@ -626,10 +693,14 @@ def _fetch_codex_account_usage_from_pool():
         probe_items = []
         queried = 0
         for index, entry in enumerate(entries, start=1):
-            if _entry_is_pool_exhausted(entry):
-                rows_by_index[index] = _codex_pool_exhausted_row(entry, index)
-            else:
-                probe_items.append((index, entry))
+            exhausted = _entry_is_pool_exhausted(entry)
+            probe_items.append((
+                index,
+                entry,
+                exhausted,
+                _subprocess_entry_pool_exhausted_reason(entry) if exhausted else None,
+                _subprocess_entry_pool_retry_after(entry) if exhausted else None,
+            ))
         if probe_items:
             max_workers = min(_CODEX_POOL_MAX_WORKERS, len(probe_items))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -851,6 +922,55 @@ def _safe_entry_label(entry, index):
     if len(label) > 64:
         label = label[:61].rstrip() + "..."
     return label
+
+
+def _safe_codex_reset_message(message):
+    text = " ".join(str(message or "").split())
+    if not text:
+        return None
+    lowered = text.lower()
+    sensitive_terms = ("access_token", "refresh_token", "authorization", "bearer", "jwt", "secret")
+    if any(term in lowered for term in sensitive_terms):
+        return "Codex reset redemption failed."
+    if len(text) <= 600:
+        return text
+    truncated = text[:600].rstrip()
+    last_space = truncated.rfind(" ")
+    if last_space >= 480:
+        truncated = truncated[:last_space].rstrip()
+    return truncated + "..."
+
+
+def _count_value(value: Any) -> int | None:
+    number = _quota_number(value)
+    if number is None:
+        return None
+    try:
+        return max(0, int(number))
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_banked_resets(value: Any, *, redeemable: bool | None = None, reason_code: str | None = None, complete: bool | None = None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        count = _count_value(value.get("available_count"))
+        redeemable = value.get("redeemable") if redeemable is None else redeemable
+        reason_code = value.get("reason_code") if reason_code is None else reason_code
+        complete = value.get("complete") if complete is None else complete
+    else:
+        count = _count_value(getattr(value, "available_count", value))
+        if complete is None:
+            complete = getattr(value, "complete", None)
+    if count is None:
+        return None
+    return {
+        "available_count": count,
+        "redeemable": bool(redeemable) if redeemable is not None else False,
+        "reason_code": (str(reason_code).strip() or None) if reason_code is not None else None,
+        "complete": bool(complete) if complete is not None else True,
+    }
 
 
 def _entry_pool_retry_after(entry):
@@ -1566,6 +1686,13 @@ def _serialize_account_usage_snapshot(snapshot: Any) -> dict[str, Any] | None:
         "fetched_at": _isoformat_utc(getattr(snapshot, "fetched_at", None)),
     }
     pool = getattr(snapshot, "pool", None)
+    total_credentials = _count_value(pool.get("total_credentials")) if isinstance(pool, dict) else None
+    banked_resets = _coerce_banked_resets(
+        getattr(snapshot, "banked_resets", None),
+        redeemable=result["provider"] == "openai-codex" and (pool is None or total_credentials == 1),
+    )
+    if banked_resets is not None:
+        result["banked_resets"] = banked_resets
     if isinstance(pool, dict):
         result["pool"] = pool
     return result
@@ -1646,6 +1773,7 @@ def _account_usage_payload_to_snapshot(payload: Any) -> Any:
         plan=payload.get("plan"),
         windows=windows,
         details=tuple(payload.get("details") or ()),
+        banked_resets=payload.get("banked_resets") if isinstance(payload.get("banked_resets"), dict) else None,
         available=bool(payload.get("available")),
         unavailable_reason=payload.get("unavailable_reason"),
         fetched_at=payload.get("fetched_at"),
@@ -2094,6 +2222,184 @@ def _provider_account_usage_status(provider: str, display_name: str, *, refresh:
         "account_limits": account_limits,
         "message": message,
     }
+
+
+def _codex_reset_result(
+    ok: bool,
+    state: str,
+    message: str,
+    *,
+    reason_code: str | None = None,
+    available_count: Any = None,
+    windows_reset: Any = None,
+) -> dict[str, Any]:
+    result = {
+        "ok": bool(ok),
+        "state": str(state or "failed").strip() or "failed",
+        "message": _safe_codex_reset_message(message) or "Codex reset redemption failed.",
+        "reason_code": (str(reason_code).strip() or None) if reason_code is not None else None,
+    }
+    sanitized_available_count = _count_value(available_count)
+    if sanitized_available_count is not None:
+        result["available_count"] = sanitized_available_count
+    sanitized_windows_reset = _count_value(windows_reset)
+    if sanitized_windows_reset is not None:
+        result["windows_reset"] = sanitized_windows_reset
+    return result
+
+
+def _codex_reset_conflict(message: str, *, reason_code: str, quota_status: dict[str, Any], http_status: int = 409) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "http_status": http_status,
+        "quota_status": quota_status,
+        "redemption": _codex_reset_result(False, "conflict", message, reason_code=reason_code),
+    }
+
+
+def _codex_reset_response(http_status: int, quota_status: dict[str, Any], redemption: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": bool(redemption.get("ok")),
+        "http_status": http_status,
+        "quota_status": quota_status,
+        "redemption": redemption,
+    }
+
+
+def _result_value(result: Any, *names: str) -> Any:
+    for name in names:
+        if isinstance(result, dict) and name in result:
+            value = result.get(name)
+            if value is not None:
+                return value
+        try:
+            value = getattr(result, name)
+        except Exception:
+            value = None
+        if value is not None:
+            return value
+    return None
+
+
+def _normalize_codex_reset_redemption(result: Any) -> dict[str, Any]:
+    state = str(_result_value(result, "state", "status", "result") or "failed").strip().lower() or "failed"
+    available_count = _result_value(result, "available_count")
+    windows_reset = _result_value(result, "windows_reset")
+    redeemed = _result_value(result, "redeemed")
+    ok = state == "reset" and redeemed is True
+    reason_code = _result_value(result, "reason_code")
+    message = _result_value(result, "message", "detail", "summary")
+    if state == "not_exhausted":
+        return _codex_reset_result(
+            False,
+            state,
+            message or "Current Codex usage is not exhausted; confirm force to redeem anyway.",
+            reason_code=reason_code,
+            available_count=available_count,
+            windows_reset=windows_reset,
+        )
+    if ok:
+        return _codex_reset_result(
+            True,
+            state,
+            message or "Codex reset redeemed.",
+            reason_code=reason_code,
+            available_count=available_count,
+            windows_reset=windows_reset,
+        )
+    return _codex_reset_result(
+        False,
+        state,
+        message or "Codex reset was not redeemed.",
+        reason_code=reason_code,
+        available_count=available_count,
+        windows_reset=windows_reset,
+    )
+
+
+def redeem_codex_reset_credit_status(*, force: bool = False) -> dict[str, Any]:
+    provider_id = (_active_provider_id() or "").strip().lower()
+    if not isinstance(force, bool):
+        return _codex_reset_conflict(
+            "force must be a boolean",
+            reason_code="invalid_force",
+            quota_status=get_provider_quota("openai-codex"),
+            http_status=400,
+        )
+    if provider_id != "openai-codex":
+        quota_status = get_provider_quota("openai-codex")
+        return _codex_reset_conflict(
+            "Codex reset redemption is only available when OpenAI Codex is the active provider.",
+            reason_code="wrong_provider",
+            quota_status=quota_status,
+            http_status=400,
+        )
+    # The cached panel snapshot is not authoritative for a scarce redemption.
+    quota_status = get_provider_quota("openai-codex", refresh=True)
+    account_limits = quota_status.get("account_limits") if isinstance(quota_status, dict) else None
+    if not isinstance(account_limits, dict):
+        return _codex_reset_conflict(
+            "Codex reset redemption needs a confirmed account usage snapshot.",
+            reason_code="unknown_account",
+            quota_status=quota_status,
+        )
+    banked_resets = account_limits.get("banked_resets") if isinstance(account_limits.get("banked_resets"), dict) else None
+    available_count = _count_value(banked_resets.get("available_count")) if banked_resets else None
+    if available_count is None:
+        return _codex_reset_conflict(
+            "Codex reset redemption needs a confirmed banked reset count.",
+            reason_code="unknown_account",
+            quota_status=quota_status,
+        )
+    if available_count <= 0:
+        return _codex_reset_conflict(
+            "Codex reset redemption has no confirmed banked resets available.",
+            reason_code="no_banked_resets",
+            quota_status=quota_status,
+        )
+    pool = account_limits.get("pool") if isinstance(account_limits.get("pool"), dict) else None
+    total_credentials = _count_value(pool.get("total_credentials")) if pool else None
+    if isinstance(pool, dict) and total_credentials != 1:
+        return _codex_reset_conflict(
+            "Redeem from the account-specific Codex app or web while multiple credentials are configured.",
+            reason_code="ambiguous_pool",
+            quota_status=quota_status,
+        )
+    pool_rows = pool.get("credentials") if isinstance(pool, dict) else None
+    single_exhausted_pool = bool(
+        quota_status.get("status") == "unavailable"
+        and isinstance(pool, dict)
+        and total_credentials == 1
+        and (
+            _count_value(pool.get("exhausted_credentials")) == 1
+            or (
+                isinstance(pool_rows, list)
+                and len(pool_rows) == 1
+                and isinstance(pool_rows[0], dict)
+                and pool_rows[0].get("status") == "exhausted"
+            )
+        )
+    )
+    if quota_status.get("status") != "available" and not single_exhausted_pool:
+        return _codex_reset_conflict(
+            "Codex reset redemption needs a confirmed available account usage snapshot.",
+            reason_code="unknown_account",
+            quota_status=quota_status,
+        )
+    try:
+        from agent.account_usage import redeem_codex_reset_credit
+
+        raw_result = redeem_codex_reset_credit(force=force)
+    except Exception as exc:
+        return _codex_reset_response(
+            502,
+            quota_status,
+            _codex_reset_result(False, "failed", _sanitize_error(exc), reason_code="helper_error"),
+        )
+    invalidate_account_usage_status_cache("openai-codex")
+    fresh_quota_status = get_provider_quota("openai-codex", refresh=True)
+    redemption = _normalize_codex_reset_redemption(raw_result)
+    return _codex_reset_response(200, fresh_quota_status, redemption)
 
 
 def get_provider_quota(provider_id: str | None = None, *, refresh: bool = False) -> dict[str, Any]:
